@@ -89,6 +89,8 @@ func NewTalosTools(pool *talos.Pool, allowDestructive bool, extensions map[strin
 func (t *TalosTools) RegisterTools(srv *mcp.Server) {
 	if t.enabled(config.ExtensionCluster) {
 		t.RegisterClustersList(srv)
+		t.RegisterClustersDescribe(srv)
+		t.RegisterClustersEvent(srv)
 
 		// The discovery tool needs at least one cluster with discovery keys (§9).
 		if len(t.pool.ClustersWithDiscovery()) > 0 {
@@ -115,6 +117,12 @@ func (t *TalosTools) enabled(group string) bool {
 // track records a registered tool for talos_clusters_list.
 func (t *TalosTools) track(spec toolSpec) {
 	t.registered = append(t.registered, spec)
+}
+
+// isRegistered reports whether a tool was registered, for hints that point
+// to another tool.
+func (t *TalosTools) isRegistered(name string) bool {
+	return slices.ContainsFunc(t.registered, func(s toolSpec) bool { return s.name == name })
 }
 
 // toolsFor returns the registered tools usable on a cluster, sorted.

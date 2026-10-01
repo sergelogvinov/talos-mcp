@@ -98,6 +98,24 @@ func (t *TalosTools) talosError(ctx context.Context, cause error, cluster, api s
 	}
 }
 
+// noNodeAnswered is the error of a multi-node tool when every node failed.
+// Credential errors and down endpoints (endpointErr: the member list could
+// not be read through them either) are mapped by talosError. Otherwise the
+// endpoints answer and only the nodes failed, so the per-node warnings are
+// returned instead of an "endpoint unreachable" that blames the endpoint.
+func (t *TalosTools) noNodeAnswered(ctx context.Context, cluster, api string, first, endpointErr error, nodeWarnings []string) error {
+	switch code := status.Code(first); {
+	case code == codes.PermissionDenied || code == codes.Unauthenticated:
+		return t.talosError(ctx, first, cluster, api)
+	case endpointErr != nil:
+		return t.talosError(ctx, endpointErr, cluster, api)
+	case len(nodeWarnings) == 0:
+		return t.talosError(ctx, first, cluster, api)
+	default:
+		return fmt.Errorf("cluster %s: no node answered: %s", cluster, strings.Join(nodeWarnings, "; "))
+	}
+}
+
 // grpcMessage returns the status message of a gRPC error, or the error text.
 func grpcMessage(err error) string {
 	if s, ok := status.FromError(err); ok {

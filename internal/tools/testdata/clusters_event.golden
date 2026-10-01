@@ -1,0 +1,7 @@
+events on prod since 1h0m0s: 5 events from 2 nodes (truncated)
+warning: node worker-2 in cluster prod has no usable address, skipped
+2026-10-01T10:00:06Z  worker-1  machine_status     stage booting, not ready: nodeReady (node not ready)
+2026-10-01T10:00:05Z  cp-1      machine_status     stage running, ready
+2026-10-01T10:00:04Z  worker-1  config_load_error  bad config: password=***
+2026-10-01T10:00:03Z  worker-1  service            kubelet failed: Condition failed (unhealthy: connection refused)
+2026-10-01T10:00:02Z  cp-1      service            etcd running: Health check successful (healthy)

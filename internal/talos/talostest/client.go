@@ -23,13 +23,33 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cosi-project/runtime/pkg/resource"
 	"github.com/cosi-project/runtime/pkg/state"
 	"github.com/siderolabs/talos/pkg/machinery/api/common"
 	machineapi "github.com/siderolabs/talos/pkg/machinery/api/machine"
 	"github.com/siderolabs/talos/pkg/machinery/client"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
+
+// FakeNode is one node behind apid.
+type FakeNode struct {
+	// Err fails every call to the node, as when it is unreachable.
+	Err error
+
+	Version  string
+	Services []*machineapi.ServiceInfo
+	// BootTime is Unix seconds; CPUs the number of cores.
+	BootTime        uint64
+	CPUs            int
+	MemTotalKiB     uint64
+	MemAvailableKiB uint64
+
+	// St serves the node's COSI resources.
+	St state.State
+}
 
 // LogsCall records one Logs call of a FakeClient.
 type LogsCall struct {
@@ -44,8 +64,15 @@ type LogsCall struct {
 // FakeClient is a talos.Client for tool tests. Calls that a test doesn't
 // set up return an error or panic, so unexpected network use fails loudly.
 type FakeClient struct {
-	// St serves COSI resources (Members) when set.
+	// St serves COSI resources (Members) when set. COSI calls aimed at a
+	// node (client.WithNode) in Nodes use that node's St instead.
 	St state.State
+
+	// Nodes holds the replies of Version, ServiceList, SystemStat and
+	// Memory per target node (client.WithNode). APIErr fails all of these
+	// calls and COSI reads, as when the endpoint is down.
+	Nodes  map[string]*FakeNode
+	APIErr error
 
 	// LogText maps a service or container id to its full log text. Chunk
 	// splits the text into stream messages of this size (default: one).
@@ -71,6 +98,17 @@ type FakeClient struct {
 	EtcdUnhealthy map[string]error
 	EtcdErrors    map[string][]string
 
+	// EventLog maps a node address to the events it streams after the hello
+	// event. Then the stream stays open until ctx ends, as machined's does,
+	// unless EventsEnd has an error (io.EOF for a clean end) for the node.
+	// EventsErr maps a node address to the error Events returns for it.
+	// A node in EventsSilent sends nothing, not even the hello, as a node
+	// that is down or rebooting behind apid.
+	EventLog     map[string][]*machineapi.Event
+	EventsEnd    map[string]error
+	EventsErr    map[string]error
+	EventsSilent map[string]bool
+
 	// RebootErr is returned by RebootWithResponse; ActorID is in its response.
 	RebootErr error
 	ActorID   string
@@ -78,9 +116,16 @@ type FakeClient struct {
 	mu          sync.Mutex
 	LogsCalls   []LogsCall
 	DmesgNodes  []string
+	EventsCalls []EventsCall
 	RebootCalls []RebootCall
 	EtcdCalls   []string // "MemberList@<node>" and "Status@<node>"
 	closed      bool
+}
+
+// EventsCall records one Events call of a FakeClient.
+type EventsCall struct {
+	Node    string
+	Request *machineapi.EventsRequest
 }
 
 // RebootCall records one RebootWithResponse call of a FakeClient.
@@ -89,15 +134,29 @@ type RebootCall struct {
 	Mode machineapi.RebootRequest_Mode
 }
 
-// Version is not used by the tool tests.
-func (f *FakeClient) Version(context.Context, ...grpc.CallOption) (*machineapi.VersionResponse, error) {
-	panic("talostest: Version not faked")
+// Version answers for the node in ctx from Nodes.
+func (f *FakeClient) Version(ctx context.Context, _ ...grpc.CallOption) (*machineapi.VersionResponse, error) {
+	n, err := f.node(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &machineapi.VersionResponse{Messages: []*machineapi.Version{{Version: &machineapi.VersionInfo{Tag: n.Version}}}}, nil
 }
 
-// ServiceList returns Services.
-func (f *FakeClient) ServiceList(context.Context, ...grpc.CallOption) (*machineapi.ServiceListResponse, error) {
+// ServiceList answers from Nodes for a node in it, else returns Services.
+func (f *FakeClient) ServiceList(ctx context.Context, _ ...grpc.CallOption) (*machineapi.ServiceListResponse, error) {
 	if f.ServiceListErr != nil {
 		return nil, f.ServiceListErr
+	}
+
+	if _, ok := f.Nodes[nodeFromContext(ctx)]; ok {
+		n, err := f.node(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		return &machineapi.ServiceListResponse{Messages: []*machineapi.ServiceList{{Services: n.Services}}}, nil
 	}
 
 	services := make([]*machineapi.ServiceInfo, 0, len(f.Services))
@@ -106,6 +165,33 @@ func (f *FakeClient) ServiceList(context.Context, ...grpc.CallOption) (*machinea
 	}
 
 	return &machineapi.ServiceListResponse{Messages: []*machineapi.ServiceList{{Services: services}}}, nil
+}
+
+// SystemStat answers for the node in ctx from Nodes.
+func (f *FakeClient) SystemStat(ctx context.Context, _ ...grpc.CallOption) (*machineapi.SystemStatResponse, error) {
+	n, err := f.node(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	msg := &machineapi.SystemStat{BootTime: n.BootTime}
+	for range n.CPUs {
+		msg.Cpu = append(msg.Cpu, &machineapi.CPUStat{})
+	}
+
+	return &machineapi.SystemStatResponse{Messages: []*machineapi.SystemStat{msg}}, nil
+}
+
+// Memory answers for the node in ctx from Nodes.
+func (f *FakeClient) Memory(ctx context.Context, _ ...grpc.CallOption) (*machineapi.MemoryResponse, error) {
+	n, err := f.node(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &machineapi.MemoryResponse{Messages: []*machineapi.Memory{{
+		Meminfo: &machineapi.MemInfo{Memtotal: n.MemTotalKiB, Memavailable: n.MemAvailableKiB},
+	}}}, nil
 }
 
 // Logs streams the last tailLines lines of LogText[id] (all when negative).
@@ -172,9 +258,38 @@ func (f *FakeClient) Dmesg(ctx context.Context, _, _ bool) (machineapi.MachineSe
 	return &fakeStream{msgs: msgs, err: io.EOF}, nil
 }
 
-// EventsWatchV2 is not used by the tool tests yet.
-func (f *FakeClient) EventsWatchV2(context.Context, chan<- client.EventResult, ...client.EventsOptionFunc) error {
-	panic("talostest: EventsWatchV2 not faked")
+// Events streams a hello event, then EventLog[node]; see EventLog.
+func (f *FakeClient) Events(ctx context.Context, opts ...client.EventsOptionFunc) (machineapi.MachineService_EventsClient, error) {
+	var req machineapi.EventsRequest
+	for _, opt := range opts {
+		opt(&req)
+	}
+
+	node := nodeFromContext(ctx)
+
+	f.mu.Lock()
+	f.EventsCalls = append(f.EventsCalls, EventsCall{Node: node, Request: &req})
+	f.mu.Unlock()
+
+	if err := f.EventsErr[node]; err != nil {
+		return nil, err
+	}
+
+	if f.EventsSilent[node] {
+		return &fakeEventStream{ctx: ctx}, nil
+	}
+
+	events := append([]*machineapi.Event{{}}, f.EventLog[node]...)
+
+	return &fakeEventStream{ctx: ctx, events: events, end: f.EventsEnd[node]}, nil
+}
+
+// EventsRequests returns a copy of the recorded Events calls.
+func (f *FakeClient) EventsRequests() []EventsCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.EventsCalls)
 }
 
 // RebootWithResponse records the call and returns ActorID, or RebootErr.
@@ -227,13 +342,13 @@ func (f *FakeClient) Reboots() []RebootCall {
 	return slices.Clone(f.RebootCalls)
 }
 
-// State returns St.
+// State returns St, routing calls aimed at a node in Nodes to its St.
 func (f *FakeClient) State() state.State {
 	if f.St == nil {
 		panic("talostest: State not faked")
 	}
 
-	return f.St
+	return state.WrapCore(&nodeState{CoreState: f.St, f: f})
 }
 
 // Close records that the client was closed.
@@ -254,6 +369,26 @@ func (f *FakeClient) Calls() []LogsCall {
 	return slices.Clone(f.LogsCalls)
 }
 
+// node returns the Nodes entry of the node in ctx, or the error apid would
+// return for it.
+func (f *FakeClient) node(ctx context.Context) (*FakeNode, error) {
+	if f.APIErr != nil {
+		return nil, f.APIErr
+	}
+
+	node := nodeFromContext(ctx)
+
+	n := f.Nodes[node]
+	switch {
+	case n == nil:
+		return nil, status.Errorf(codes.Unavailable, "unknown node %q", node)
+	case n.Err != nil:
+		return nil, n.Err
+	default:
+		return n, nil
+	}
+}
+
 func (f *FakeClient) recordEtcd(ctx context.Context, call string) string {
 	node := nodeFromContext(ctx)
 
@@ -262,6 +397,57 @@ func (f *FakeClient) recordEtcd(ctx context.Context, call string) string {
 	f.mu.Unlock()
 
 	return node
+}
+
+// nodeState routes COSI reads aimed at a node with its own St.
+type nodeState struct {
+	state.CoreState
+
+	f *FakeClient
+}
+
+// Get reads from the target node's state.
+func (s *nodeState) Get(ctx context.Context, ptr resource.Pointer, opts ...state.GetOption) (resource.Resource, error) {
+	st, err := s.core(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return st.Get(ctx, ptr, opts...)
+}
+
+// List reads from the target node's state.
+func (s *nodeState) List(ctx context.Context, kind resource.Kind, opts ...state.ListOption) (resource.List, error) {
+	st, err := s.core(ctx)
+	if err != nil {
+		return resource.List{}, err
+	}
+
+	return st.List(ctx, kind, opts...)
+}
+
+func (s *nodeState) core(ctx context.Context) (state.CoreState, error) {
+	if s.f.APIErr != nil {
+		return nil, s.f.APIErr
+	}
+
+	node := nodeFromContext(ctx)
+	if node == "" {
+		return s.CoreState, nil
+	}
+
+	n := s.f.Nodes[node]
+
+	switch {
+	case n == nil:
+		return s.CoreState, nil
+	case n.Err != nil:
+		return nil, n.Err
+	case n.St == nil:
+		return s.CoreState, nil
+	default:
+		return n.St, nil
+	}
 }
 
 // nodeFromContext returns the target node set with client.WithNode.
@@ -294,3 +480,32 @@ func (s *fakeStream) Recv() (*common.Data, error) {
 }
 
 func (s *fakeStream) CloseSend() error { return nil }
+
+// fakeEventStream replays events, then returns end, or blocks until ctx
+// ends when end is nil.
+type fakeEventStream struct {
+	grpc.ClientStream
+
+	ctx    context.Context //nolint:containedctx
+	events []*machineapi.Event
+	end    error
+}
+
+func (s *fakeEventStream) Recv() (*machineapi.Event, error) {
+	if len(s.events) > 0 {
+		ev := s.events[0]
+		s.events = s.events[1:]
+
+		return ev, nil
+	}
+
+	if s.end != nil {
+		return nil, s.end
+	}
+
+	<-s.ctx.Done()
+
+	return nil, status.FromContextError(s.ctx.Err()).Err()
+}
+
+func (s *fakeEventStream) CloseSend() error { return nil }

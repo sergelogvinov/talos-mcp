@@ -595,52 +595,69 @@ type clustersDescribeInput struct {
 }
 
 type ClustersDescribeResult struct {
-    Cluster           string        `json:"cluster"`
-    ClusterName       string        `json:"cluster_name,omitempty" jsonschema:"Cluster name from machine config"`
-    KubernetesVersion string        `json:"kubernetes_version,omitempty"`
-    Endpoints         []string      `json:"endpoints"`
-    NodeSource        string        `json:"node_source" jsonschema:"Where the node list came from: members or talosconfig"`
-    Nodes             []NodeSummary `json:"nodes"`
-    Etcd              []EtcdMember  `json:"etcd,omitempty" jsonschema:"etcd members (control plane)"`
-    Warnings          []string      `json:"warnings,omitempty" jsonschema:"Nodes that could not be queried, unhealthy services, etc."`
+    Cluster           string              `json:"cluster"`
+    ClusterName       string              `json:"cluster_name,omitempty" jsonschema:"Cluster name from Talos"`
+    KubernetesVersion string              `json:"kubernetes_version,omitempty" jsonschema:"Kubernetes version (control plane kubelets)"`
+    Endpoints         []string            `json:"endpoints"`
+    NodeSource        string              `json:"node_source" jsonschema:"Node list source (members or talosconfig)"`
+    Count             int                 `json:"count"`
+    Reachable         int                 `json:"reachable" jsonschema:"Reachable nodes"`
+    Nodes             []NodeSummary       `json:"nodes"`
+    Etcd              []EtcdMemberSummary `json:"etcd,omitempty"`
+    Warnings          []string            `json:"warnings,omitempty"`
 }
 
 type NodeSummary struct {
-    Hostname        string   `json:"hostname"`
-    Addresses       []string `json:"addresses"`
-    Role            string   `json:"role" jsonschema:"controlplane or worker"`
-    TalosVersion    string   `json:"talos_version"`
-    Reachable       bool     `json:"reachable" jsonschema:"Talos API answered for this node"`
-    Uptime          string   `json:"uptime,omitempty"`
-    Ready           bool     `json:"ready" jsonschema:"Machine status ready"`
-    Stage           string   `json:"stage,omitempty" jsonschema:"Machine stage: booting, running, rebooting..."`
+    Hostname          string   `json:"hostname"`
+    Address           string   `json:"address" jsonschema:"Address the node was queried at"`
+    Role              string   `json:"role" jsonschema:"controlplane, worker, or empty when unknown"`
+    TalosVersion      string   `json:"talos_version,omitempty"`
+    KubernetesVersion string   `json:"kubernetes_version,omitempty" jsonschema:"Kubelet version"`
+    Reachable         bool     `json:"reachable" jsonschema:"Talos API answered for this node"`
+    Stage             string   `json:"stage,omitempty" jsonschema:"booting, running, rebooting, ..."`
+    Ready             bool     `json:"ready"`
+    Uptime            string   `json:"uptime,omitempty" jsonschema:"e.g. 2d3h4m"`
+    Resources         string   `json:"resources,omitempty" jsonschema:"cpu=N, memory=XGiB (used=YGiB)"`
     UnhealthyServices []string `json:"unhealthy_services,omitempty"`
-    Resources       string   `json:"resources,omitempty" jsonschema:"cpu=N, memory=XGiB (used=YGiB)"`
+    UnmetConditions   []string `json:"unmet_conditions,omitempty" jsonschema:"Why the node is not ready"`
 }
 
-type EtcdMember struct {
-    Hostname  string `json:"hostname"`
-    ID        string `json:"id"`
-    IsLearner bool   `json:"is_learner"`
+type EtcdMemberSummary struct {
+    Hostname string `json:"hostname"`
+    ID       string `json:"id" jsonschema:"Member ID, hex"`
+    Learner  bool   `json:"learner"`
 }
 ```
 
-Talos API calls:
+Talos API calls (all allow `os:reader` in Talos v1.14.2):
 
-| Data                       | Source                                                   |
-| -------------------------- | -------------------------------------------------------- |
-| node list, role, version   | `Pool.Members`: COSI `Members` → talosconfig (§6.1)      |
-| version per node           | `client.Version` (fanned out with `client.WithNodes`)    |
-| stage / ready              | COSI `MachineStatuses.runtime.talos.dev`                 |
-| unhealthy services         | `client.ServiceList` — services not `Running`/healthy    |
-| uptime / memory / cpu      | `client.SystemStat` / `client.Memory`                    |
-| etcd members               | `client.EtcdMemberList` against one control plane node   |
-| k8s version, cluster name  | COSI `KubeletSpecs` / `ClusterIdentity` or machine config cluster name |
+| Data                       | Source                                                          |
+| -------------------------- | --------------------------------------------------------------- |
+| node list, role            | `Pool.Members`: COSI `Members` → talosconfig (§6.1)             |
+| reachable, Talos version   | `Version` per node                                              |
+| unhealthy services         | `ServiceList` per node: not `Running`, or health check failing  |
+| uptime / cpu / memory      | `SystemStat` (boot time, CPU count) and `Memory` per node       |
+| stage / ready              | COSI `MachineStatuses.runtime.talos.dev` per node               |
+| kubelet version            | COSI `KubeletStatuses.kubernetes.talos.dev` (image tag) per node |
+| etcd members               | `EtcdMemberList` through one reachable control plane node       |
+| cluster name               | COSI `Infos.cluster.talos.dev` through the same node            |
 
-Every per-node query goes out in **one** fan-out call using
-`client.WithNodes(ctx, nodes...)`, and the response is demultiplexed by
-`Metadata.Hostname`. A node that fails adds an entry to `Warnings`. It does
-not fail the whole tool, so a partial result is still useful.
+`KubeletSpec` and the machine config are `Sensitive` and not readable with
+`os:reader`, so the kubelet version comes from `KubeletStatus`. A resource
+missing on an older Talos version (`NotFound`) leaves its field empty
+without a warning.
+
+Each node is queried on its own with `client.WithNode`, at most 8 nodes at a
+time, under the 60s aggregate timeout (§6). machinery v1.14.2 deprecates
+`client.WithNodes` ("use WithNode and client-side multiplexing") and the
+`Metadata.Hostname` used to demultiplex its replies, so the tool doesn't
+use them. A node whose `Version` call fails is unreachable. Any other
+failed call adds an entry to `Warnings`. Neither fails the whole tool, so
+a partial result is still useful. The node list comes from
+`Pool.ResolveAllNodes` (shared with `talos_clusters_event`), which queries
+members that share an address once; members without an address are listed
+after the others, unreachable. When no node answers, the tool fails with
+"no node answered" (§11).
 
 `talos_clusters_describe` **does not read or show discovery data**, even when
 the context has discovery keys. Everything in the result comes from apid or
@@ -658,33 +675,76 @@ and config load errors. It is the main tool for "what just happened?" or "is
 the reboot done?".
 
 ```go
-type clustersEventInput struct {
+type ClustersEventInput struct {
     Cluster string `json:"cluster,omitempty" jsonschema:"Cluster name; default is current"`
     Node    string `json:"node,omitempty" jsonschema:"Limit to one node (IP or hostname); default all nodes"`
     Since   string `json:"since,omitempty" jsonschema:"Only events newer than this duration, e.g. 15m, 2h (default 1h)"`
     Limit   int    `json:"limit,omitempty" jsonschema:"Maximum number of events to return (default 50, max 500)"`
+    ActorID string `json:"actor_id,omitempty" jsonschema:"Only events of this Talos actor id, e.g. the one returned by talos_node_reboot"`
 }
 
 type ClustersEventResult struct {
-    Cluster string         `json:"cluster"`
-    Count   int            `json:"count"`
-    Events  []EventSummary `json:"events"`
+    Cluster   string         `json:"cluster"`
+    Since     string         `json:"since"`
+    Nodes     int            `json:"nodes" jsonschema:"Number of nodes queried"`
+    Count     int            `json:"count"`
+    Truncated bool           `json:"truncated" jsonschema:"More events were found than returned"`
+    Events    []EventSummary `json:"events" jsonschema:"Newest first"`
+    Warnings  []string       `json:"warnings,omitempty"`
 }
 
 type EventSummary struct {
-    Time    string `json:"time" jsonschema:"RFC3339, UTC"`
-    Node    string `json:"node"`
-    Type    string `json:"type" jsonschema:"sequence, phase, task, service, machine_status, config_load_error, ..."`
-    Summary string `json:"summary" jsonschema:"One-line human readable description"`
+    Time     string `json:"time" jsonschema:"RFC3339, UTC, second precision"`
+    Node     string `json:"node" jsonschema:"Node address"`
+    NodeName string `json:"node_name,omitempty"`
+    Type     string `json:"type" jsonschema:"sequence, phase, task, service, machine_status, config_load_error, config_validation_error, address, restart"`
+    Summary  string `json:"summary" jsonschema:"One-line description, sanitized"`
+    ActorID  string `json:"actor_id,omitempty"`
+    ID       string `json:"id"`
 }
 ```
 
-Implementation: `client.EventsWatchV2` with `client.WithTailDuration(since)`.
-It drains the tail and stops when the backlog is done, or when an idle timeout
-expires after the last event (about 1s). The tool never blocks waiting for new
-events. Each typed event payload (`machine.SequenceEvent`, `ServiceStateEvent`,
-`MachineStatusEvent`, ...) is turned into a one-line `Summary`. Results are
-sorted newest first and cut to `Limit`.
+Implementation:
+
+- `since` is a Go duration between 1s and 720h, sent as
+  `client.WithTailDuration`; `actor_id` as `client.WithActorID`. Both filter
+  in machined.
+- An empty `node` reads every member (`Pool.ResolveAllNodes`: the COSI
+  `Members` with the §6.1 address choice, or the talosconfig fallback with
+  its warning). Members without a usable address are skipped with a
+  warning, and members sharing an address are read once. A set `node` is
+  resolved with `Pool.ResolveNode` (§6.1).
+- One `Events` stream per node (`client.WithNode`), at most 8 at a time,
+  under the 60s aggregate timeout (§6). A node still waiting for a slot
+  when the deadline passes is not read ("not read, the call's time limit
+  was reached"). The tool uses the raw `Events`
+  stream, not `EventsWatchV2`: that one ends the stream on the first event
+  type the machinery version doesn't know.
+- machined sends an empty hello event, then the backlog, and keeps the
+  stream open. A node without a hello within 5s fails ("the node may be
+  down or rebooting"). After the hello, a node's read ends at EOF, 1s after
+  its last message, or after 15s with an "incomplete" warning. The tool
+  never waits for new events.
+- Each node keeps its newest `limit` raw events in a ring; only those are
+  decoded and sanitized, after the read.
+- Events carry no timestamp field; the time is decoded from the event ID,
+  an xid (4-byte Unix seconds prefix).
+- Each typed payload (`SequenceEvent`, `PhaseEvent`, `TaskEvent`,
+  `ServiceStateEvent`, `MachineStatusEvent`, `ConfigLoadErrorEvent`,
+  `ConfigValidationErrorEvent`, `AddressEvent`, `RestartEvent`) becomes a
+  one-line `Summary`: sanitized first (§10), then whitespace collapsed, since
+  the YAML key rules match at the start of a line. An unknown
+  type is kept with its type name and "event not supported".
+- A node that fails (open error, stream error, an apid metadata error, or
+  no hello) becomes a warning. When every node fails, the tool fails with
+  "no node answered" (§11).
+- Each node keeps its newest `limit` events; the merged list is sorted
+  newest first (time, then ID) and cut to `limit`, with `Truncated` set.
+- Text output: a header line, warnings, then aligned `time node type
+  summary` lines.
+
+`talos_node_reboot`'s hint points to this tool (`since=10m`) when it is
+registered, and to the machined logs otherwise.
 
 ### 8.4 `talos_clusters_members`
 
@@ -970,6 +1030,11 @@ cluster, so the tool is simply present or absent.
   - `Unauthenticated` / expired cert: "client certificate expired at <time>"
 - **Partial failures** in fan-out tools appear in `Warnings` and don't fail
   the whole tool (§8.2).
+- **Every node failing** in a fan-out tool fails it. When the endpoints
+  answered the `Members` read, the error is "cluster X: no node answered:"
+  with the per-node reasons, so a cluster that is rebooting isn't reported
+  as an unreachable endpoint. When that read failed too, or the nodes
+  rejected the credential, the error is mapped as above.
 - **Discovery service errors** only affect `talos_clusters_members`, the one
   tool that uses the service. They return a tool error such as "discovery
   service unreachable", "cluster_secret does not decrypt affiliate data
@@ -1032,8 +1097,8 @@ cluster, so the tool is simply present or absent.
 - `talos_clusters_describe`: the result has no discovery data, and the
   discovery fake gets no calls, even when the context has discovery keys.
 - `internal/tools`: handler tests against a fake Talos client. The pool hands
-  out a small interface (`Version`, `ServiceList`, `Logs`, `Dmesg`,
-  `EventsWatchV2`, `Reboot`, `EtcdMemberList`, COSI list) so a fake can stand
+  out a small interface (`Version`, `ServiceList`, `SystemStat`, `Memory`, `Logs`, `Dmesg`,
+  `Events`, `Reboot`, `EtcdMemberList`, COSI list) so a fake can stand
   in (`talostest.FakeClient`; reboot uses `RebootWithResponse` for the actor
   ID, and the quorum check `EtcdMemberList` and `EtcdStatus`). Include golden
   tests for the text output.
@@ -1130,7 +1195,7 @@ starting:
   `ClustersWithRole`, `Require` and `Close` from §6. None of these touch
   the network.
 - Define the small Talos client interface from §14 (`Version`,
-  `ServiceList`, `Logs`, `Dmesg`, `EventsWatchV2`, `Reboot`,
+  `ServiceList`, `SystemStat`, `Memory`, `Logs`, `Dmesg`, `Events`, `Reboot`,
   `EtcdMemberList`, COSI list). `Pool.Client` returns this interface, so
   tool tests can use a fake.
 - `Pool.Client`: lazy `client.New(...)`, cached per context, not cached on
@@ -1177,15 +1242,16 @@ starting:
 
 **Step 9 — `talos_clusters_event` (§8.3).**
 
-- `EventsWatchV2` with a tail duration, drain until the backlog ends or the
-  ~1s idle timeout fires, one-line summaries per event type, newest first,
-  cut to `limit`.
+- The raw `Events` stream with a tail duration, one stream per node, drain
+  until the backlog ends or the ~1s idle timeout fires, one-line summaries
+  per event type, newest first, cut to `limit`.
 - Test the idle-timeout path with a fake stream that never closes.
 
 **Step 10 — `talos_clusters_describe` (§8.2).**
 
-- One `client.WithNodes` fan-out per API from the §8.2 table, demultiplexed
-  by `Metadata.Hostname`. Per-node failures go into `Warnings`.
+- Per-node calls (`client.WithNode`, at most 8 nodes at a time) for the
+  APIs in the §8.2 table; `client.WithNodes` is deprecated in machinery
+  v1.14.2. Per-node failures go into `Warnings`.
 - Merge with `Pool.Members` so nodes listed in COSI `Members` that don't
   answer show `reachable: false`.
 - No discovery data in the result, even when the context has discovery

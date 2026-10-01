@@ -88,6 +88,9 @@ type MemberList struct {
 	Members  []Member
 	Source   MemberSource
 	Warnings []string
+	// ReadErr is the apid error that made Members fall back to the
+	// talosconfig; it hints that the endpoints are down.
+	ReadErr error
 }
 
 // Members returns the node list of a cluster (design §6.1). It reads the COSI
@@ -104,7 +107,7 @@ func (p *Pool) Members(ctx context.Context, cluster string) (*MemberList, error)
 		return &MemberList{Members: members, Source: MemberSourceMembers}, nil
 	}
 
-	list := &MemberList{Members: p.talosconfigMembers(name), Source: MemberSourceTalosconfig}
+	list := &MemberList{Members: p.talosconfigMembers(name), Source: MemberSourceTalosconfig, ReadErr: err}
 
 	if err != nil {
 		list.Warnings = append(list.Warnings, fmt.Sprintf("cluster %s: reading Members through apid failed, using talosconfig addresses: %v", name, err))
@@ -287,6 +290,63 @@ func (p *Pool) ResolveNode(ctx context.Context, cluster, node string) (*Resolved
 	return &ResolvedNode{Address: addr, Name: matches[0].Name(), MachineType: matches[0].MachineType, Warnings: list.Warnings}, nil
 }
 
+// NodeTargets is the result of Pool.ResolveAllNodes.
+type NodeTargets struct {
+	// Nodes are the targets in member order, one per address.
+	Nodes []ResolvedNode
+	// Unaddressed are the members without a usable address.
+	Unaddressed []Member
+	Source      MemberSource
+	Warnings    []string
+	// ReadErr is MemberList.ReadErr.
+	ReadErr error
+}
+
+// ResolveAllNodes returns every member of a cluster as a node tool target,
+// with the address picked by SelectAddress. Members without a usable
+// address are left out with a warning. Members that resolve to the same
+// address (such as "10.0.0.1" and "10.0.0.1:50000" in the talosconfig
+// fallback) become one target, so each node is queried once.
+func (p *Pool) ResolveAllNodes(ctx context.Context, cluster string) (*NodeTargets, error) {
+	list, err := p.Members(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	name, err := p.Resolve(cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	preferV6 := p.PreferIPv6(name)
+	targets := &NodeTargets{
+		Nodes:    make([]ResolvedNode, 0, len(list.Members)),
+		Source:   list.Source,
+		Warnings: slices.Clone(list.Warnings),
+		ReadErr:  list.ReadErr,
+	}
+	seen := map[string]string{}
+
+	for _, m := range list.Members {
+		addr := SelectAddress(m.Addresses, preferV6)
+
+		switch first, dup := seen[addr]; {
+		case addr == "":
+			targets.Unaddressed = append(targets.Unaddressed, m)
+			targets.Warnings = append(targets.Warnings, fmt.Sprintf("node %s in cluster %s has no usable address, skipped", m.Name(), name))
+		case dup:
+			if first != m.Name() {
+				targets.Warnings = append(targets.Warnings, fmt.Sprintf("nodes %s and %s in cluster %s share address %s, queried once", first, m.Name(), name, addr))
+			}
+		default:
+			seen[addr] = m.Name()
+			targets.Nodes = append(targets.Nodes, ResolvedNode{Address: addr, Name: m.Name(), MachineType: m.MachineType})
+		}
+	}
+
+	return targets, nil
+}
+
 // matches reports whether node names this member: its hostname, node name,
 // node ID or one of its addresses, ignoring case.
 func (m Member) matches(node string) bool {
@@ -349,6 +409,17 @@ func SelectAddress(addrs []string, preferV6 bool) string {
 	}
 
 	return ula
+}
+
+// PreferIPv6 reports whether node addresses of a cluster should be IPv6,
+// because its first IP endpoint is (see SelectAddress).
+func (p *Pool) PreferIPv6(cluster string) bool {
+	endpoints, _, err := p.ContextInfo(cluster)
+	if err != nil {
+		return false
+	}
+
+	return preferIPv6(endpoints)
 }
 
 // preferIPv6 reports whether the first IP endpoint is IPv6. DNS endpoints

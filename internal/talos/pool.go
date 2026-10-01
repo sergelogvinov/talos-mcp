@@ -239,6 +239,11 @@ func (p *Pool) ClustersWithDiscovery() []string {
 	return names
 }
 
+// Now returns the pool clock's current time (WithClock).
+func (p *Pool) Now() time.Time {
+	return p.now()
+}
+
 // Require is the per-call role check (design §9). It fails for an unknown
 // cluster, or when the cluster's credential is below required.
 func (p *Pool) Require(cluster string, required Role) error {

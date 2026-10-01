@@ -154,8 +154,7 @@ func (t *TalosTools) NodeReboot(ctx context.Context, in NodeRebootInput) (*NodeR
 		Mode:     mode,
 		Accepted: true,
 		Etcd:     etcd,
-		Hint: fmt.Sprintf("The node reboots now and is unreachable for a while. Check it with %s cluster=%s node=%s service=machined.",
-			ToolNodeLogs, target.cluster, target.node.Address),
+		Hint:     t.rebootHint(target),
 	}
 
 	for _, msg := range resp.GetMessages() {
@@ -167,6 +166,19 @@ func (t *TalosTools) NodeReboot(ctx context.Context, in NodeRebootInput) (*NodeR
 	}
 
 	return result, nil
+}
+
+// rebootHint tells the agent how to follow the reboot: with the events tool
+// when it is registered, else with the machined logs.
+func (t *TalosTools) rebootHint(target *nodeTarget) string {
+	if t.isRegistered(ToolClustersEvent) {
+		return fmt.Sprintf("The node reboots now and is unreachable for a while. Follow it with %s cluster=%s node=%s since=10m; "+
+			"the reboot is done when a boot sequence stops and machine_status reports running, ready.",
+			ToolClustersEvent, target.cluster, target.node.Address)
+	}
+
+	return fmt.Sprintf("The node reboots now and is unreachable for a while. Check it with %s cluster=%s node=%s service=machined.",
+		ToolNodeLogs, target.cluster, target.node.Address)
 }
 
 // rebootMode maps the mode argument to Talos reboot options.

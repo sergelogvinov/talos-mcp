@@ -25,16 +25,21 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/client"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 // Client is the part of the Talos client the tools use (design §14). The pool
 // hands it out instead of *client.Client, so tool tests can use a fake.
-type Client interface {
+type Client interface { //nolint:interfacebloat // mirrors the client.Client methods the tools call
 	Version(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.VersionResponse, error)
 	ServiceList(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.ServiceListResponse, error)
+	SystemStat(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.SystemStatResponse, error)
+	Memory(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.MemoryResponse, error)
 	Logs(ctx context.Context, namespace string, driver common.ContainerDriver, id string, follow bool, tailLines int32) (machineapi.MachineService_LogsClient, error)
 	Dmesg(ctx context.Context, follow, tail bool) (machineapi.MachineService_DmesgClient, error)
-	EventsWatchV2(ctx context.Context, ch chan<- client.EventResult, opts ...client.EventsOptionFunc) error
+	// Events is the raw stream, not EventsWatchV2: that one ends the stream
+	// on the first event type this machinery version doesn't know.
+	Events(ctx context.Context, opts ...client.EventsOptionFunc) (machineapi.MachineService_EventsClient, error)
 	RebootWithResponse(ctx context.Context, opts ...client.RebootMode) (*machineapi.RebootResponse, error)
 	EtcdMemberList(ctx context.Context, req *machineapi.EtcdMemberListRequest, callOptions ...grpc.CallOption) (*machineapi.EtcdMemberListResponse, error)
 	EtcdStatus(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.EtcdStatusResponse, error)
@@ -54,6 +59,12 @@ type talosClient struct {
 // State returns the client's COSI state.
 func (c talosClient) State() state.State {
 	return c.COSI
+}
+
+// SystemStat calls the SystemStat API; machinery has no wrapper for it. Like
+// the wrappers, it moves per-node errors from the reply into the error.
+func (c talosClient) SystemStat(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.SystemStatResponse, error) {
+	return client.FilterMessages(c.MachineClient.SystemStat(ctx, &emptypb.Empty{}, callOptions...))
 }
 
 // NewTalosClient is the default ClientFactory. It does not dial: the gRPC

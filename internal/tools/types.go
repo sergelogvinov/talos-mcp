@@ -100,3 +100,64 @@ type NodeRebootResult struct {
 	Etcd     string `json:"etcd,omitempty" jsonschema:"Result of the etcd quorum check, for control plane nodes"`
 	Hint     string `json:"hint" jsonschema:"Next step"`
 }
+
+// ClustersEventResult is the structured output of the talos_clusters_event tool.
+type ClustersEventResult struct {
+	Cluster   string         `json:"cluster" jsonschema:"Cluster name"`
+	Since     string         `json:"since" jsonschema:"Time window of the events, e.g. 1h0m0s"`
+	Nodes     int            `json:"nodes" jsonschema:"Number of nodes queried"`
+	Count     int            `json:"count" jsonschema:"Number of events returned"`
+	Truncated bool           `json:"truncated" jsonschema:"More events were found than returned"`
+	Events    []EventSummary `json:"events" jsonschema:"Events, newest first"`
+	Warnings  []string       `json:"warnings,omitempty" jsonschema:"Warnings, such as nodes that could not be read"`
+}
+
+// EventSummary is one machined runtime event.
+type EventSummary struct {
+	Time     string `json:"time" jsonschema:"RFC3339, UTC, second precision"`
+	Node     string `json:"node" jsonschema:"Node address"`
+	NodeName string `json:"node_name,omitempty" jsonschema:"Node hostname, when known"`
+	Type     string `json:"type" jsonschema:"sequence, phase, task, service, machine_status, config_load_error, config_validation_error, address, restart"`
+	Summary  string `json:"summary" jsonschema:"One-line description, sanitized"`
+	ActorID  string `json:"actor_id,omitempty" jsonschema:"Talos actor id, shared by the events of one API request"`
+	ID       string `json:"id" jsonschema:"Event id"`
+}
+
+// ClustersDescribeResult is the structured output of the
+// talos_clusters_describe tool. It has no discovery service data.
+type ClustersDescribeResult struct {
+	Cluster           string              `json:"cluster" jsonschema:"Cluster"`
+	ClusterName       string              `json:"cluster_name,omitempty" jsonschema:"Cluster name from Talos"`
+	KubernetesVersion string              `json:"kubernetes_version,omitempty" jsonschema:"Kubernetes version (control plane kubelets)"`
+	Endpoints         []string            `json:"endpoints" jsonschema:"Talos API endpoints"`
+	NodeSource        string              `json:"node_source" jsonschema:"Node list source (members or talosconfig)"`
+	Count             int                 `json:"count" jsonschema:"Nodes"`
+	Reachable         int                 `json:"reachable" jsonschema:"Reachable nodes"`
+	Nodes             []NodeSummary       `json:"nodes" jsonschema:"Nodes"`
+	Etcd              []EtcdMemberSummary `json:"etcd,omitempty" jsonschema:"etcd members"`
+	Warnings          []string            `json:"warnings,omitempty" jsonschema:"Warnings"`
+}
+
+// NodeSummary is one node of talos_clusters_describe. The jsonschema text
+// is also the text column header, so it stays short.
+type NodeSummary struct {
+	Hostname          string   `json:"hostname" jsonschema:"Hostname"`
+	Address           string   `json:"address" jsonschema:"Address"`
+	Role              string   `json:"role" jsonschema:"Role"`
+	TalosVersion      string   `json:"talos_version,omitempty" jsonschema:"Talos"`
+	KubernetesVersion string   `json:"kubernetes_version,omitempty" jsonschema:"Kubelet"`
+	Reachable         bool     `json:"reachable" jsonschema:"Reachable"`
+	Stage             string   `json:"stage,omitempty" jsonschema:"Stage"`
+	Ready             bool     `json:"ready" jsonschema:"Ready"`
+	Uptime            string   `json:"uptime,omitempty" jsonschema:"Uptime"`
+	Resources         string   `json:"resources,omitempty" jsonschema:"Resources"`
+	UnhealthyServices []string `json:"unhealthy_services,omitempty" jsonschema:"Unhealthy services"`
+	UnmetConditions   []string `json:"unmet_conditions,omitempty" jsonschema:"Not ready because"`
+}
+
+// EtcdMemberSummary is one etcd member.
+type EtcdMemberSummary struct {
+	Hostname string `json:"hostname" jsonschema:"Hostname"`
+	ID       string `json:"id" jsonschema:"Member ID"`
+	Learner  bool   `json:"learner" jsonschema:"Learner"`
+}

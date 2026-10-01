@@ -37,11 +37,7 @@ func (n *nodeTarget) nodeContext(ctx context.Context) context.Context {
 
 // label is the node as shown in text output: "name (address)" or "address".
 func (n *nodeTarget) label() string {
-	if n.node.Name != "" && n.node.Name != n.node.Address {
-		return n.node.Name + " (" + n.node.Address + ")"
-	}
-
-	return n.node.Address
+	return nodeLabel(*n.node)
 }
 
 // nodeName is the hostname for results, empty when it is just the address.

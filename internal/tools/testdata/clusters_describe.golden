@@ -1,0 +1,22 @@
+Cluster: prod
+Cluster name from Talos: prod-cluster
+Kubernetes version (control plane kubelets): v1.34.1
+Talos API endpoints: 10.0.0.10
+Node list source (members or talosconfig): members
+Nodes: 3
+Reachable nodes: 2
+Warnings: node worker-2 in cluster prod has no usable address, skipped
+
+### Nodes
+
+| Hostname | Address | Role | Talos | Kubelet | Reachable | Stage | Ready | Uptime | Resources | Unhealthy services | Not ready because |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| cp-1 | 10.0.0.11 | controlplane | v1.14.2 | v1.34.1 | true | running | true | 2d3h4m | cpu=4, memory=8.0GiB (used=2.0GiB) |  |  |
+| worker-1 | 10.0.0.21 | worker | v1.14.1 |  | true | booting | false | 5m | cpu=2, memory=4.0GiB (used=1.0GiB) | cri (Waiting), kubelet (unhealthy: token=*** failed) | nodeReady: node not ready |
+| worker-2 |  | worker |  |  | false |  | false |  |  |  |  |
+
+### etcd members
+
+| Hostname | Member ID | Learner |
+| --- | --- | --- |
+| cp-1 | abc123 | false |
