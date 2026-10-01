@@ -20,7 +20,7 @@ RUN make build-all-archs
 FROM --platform=${TARGETARCH} scratch AS talos-mcp
 LABEL org.opencontainers.image.source="https://github.com/sergelogvinov/talos-mcp" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.description="Opinionated MCP server for Proxmox"
+      org.opencontainers.image.description="Opinionated MCP server for Talos Linux"
 
 COPY --from=gcr.io/distroless/static-debian13:nonroot . .
 ARG TARGETARCH

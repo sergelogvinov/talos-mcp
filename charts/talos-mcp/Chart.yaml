@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://json.schemastore.org/chart.json
+apiVersion: v2
+name: talos-mcp
+description: Talos MCP server for Talos Linux
+type: application
+home: https://github.com/sergelogvinov/talos-mcp
+sources:
+  - https://github.com/sergelogvinov/talos-mcp
+keywords:
+  - kubernetes
+  - talos
+  - mcp
+maintainers:
+  - name: sergelogvinov
+    url: https://github.com/sergelogvinov
+#
+# Versions are expected to follow Semantic Versioning (https://semver.org/)
+version: 0.0.0
+#
+appVersion: v0.0.0

@@ -32,7 +32,7 @@
   "prompts_generated": true,
   "keywords": [
     "kubernetes",
-    "helm"
+    "talos"
   ],
   "user_config": {
     "talosconfig": {

@@ -21,7 +21,7 @@ ARCHS ?= amd64 arm64
 BUILD_ARGS := --platform=$(PLATFORM)
 ifeq ($(PUSH),true)
 BUILD_ARGS += --push=$(PUSH)
-BUILD_ARGS += --output type=image,annotation-index.org.opencontainers.image.source="https://github.com/$(USERNAME)/talos-mcp",annotation-index.org.opencontainers.image.description="MimiOPS mcp server"
+BUILD_ARGS += --output type=image,annotation-index.org.opencontainers.image.source="https://github.com/$(USERNAME)/talos-mcp"
 else
 BUILD_ARGS += --output type=docker
 endif
@@ -73,7 +73,6 @@ clean: ## Clean
 
 .PHONY: tools
 tools:
-	go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.21.0
 	go install github.com/google/go-licenses@latest
 
 .PHONY: build ## Build
@@ -103,10 +102,6 @@ unit: ## Unit Tests
 
 .PHONY: test
 test: lint unit ## Run all tests
-
-.PHONY: manifests
-manifests: ## Generate rbac manifests
-	controller-gen rbac:roleName=talos-mcp paths=./internal/tools/... output:rbac:artifacts:config=./docs/deploy
 
 .PHONY: install
 install: build
@@ -149,7 +144,6 @@ docs:
 		charts/talos-mcp > docs/deploy/talos-mcp.yml
 	helm template -n mcps talos-mcp \
 		--set-string image.tag=$(TAG) \
-		--set createNamespace=true \
 		charts/talos-mcp > docs/deploy/talos-mcp-release.yml
 	helm-docs --sort-values-order=file charts/talos-mcp
 
