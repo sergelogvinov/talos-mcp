@@ -206,11 +206,16 @@ func TestServerAbortsHungCall(t *testing.T) {
 	ts := startServer(t, false)
 	session := ts.connect(t)
 
-	callErr := make(chan error, 1)
+	type callResult struct {
+		res *mcp.CallToolResult
+		err error
+	}
+
+	called := make(chan callResult, 1)
 
 	go func() {
-		_, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "test_hang", Arguments: map[string]any{}})
-		callErr <- err
+		res, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "test_hang", Arguments: map[string]any{}})
+		called <- callResult{res, err}
 	}()
 
 	<-ts.hangStarted
@@ -232,7 +237,12 @@ func TestServerAbortsHungCall(t *testing.T) {
 	assert.Contains(t, ts.logs.String(), "canceling tool calls still running after the shutdown timeout")
 	assert.NotContains(t, ts.logs.String(), "still running after they were canceled")
 	assert.NotContains(t, ts.logs.String(), "MCP sessions still open")
-	assert.Error(t, <-callErr, "the client gets no result")
+
+	// The canceled handler returns an error, which reaches the client as an
+	// error result if it is written before the connection closes.
+	if r := <-called; r.err == nil {
+		assert.True(t, r.res.IsError, "the client gets no successful result")
+	}
 }
 
 func TestServerHostCheck(t *testing.T) {

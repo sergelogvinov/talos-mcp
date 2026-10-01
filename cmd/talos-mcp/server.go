@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,6 +96,14 @@ func runServer(ctx context.Context, f *Flags) error {
 		return err
 	}
 	defer pool.Close() //nolint:errcheck
+
+	if skipped := pool.Skipped(); cfg.RequireAllContexts && len(skipped) > 0 {
+		return fmt.Errorf("--%s: talosconfig contexts skipped: %s", flagRequireAll, strings.Join(skipped, ", "))
+	}
+
+	if plain := pool.PlaintextKeys(); len(plain) > 0 {
+		log.Info("talosconfig keys are stored unencrypted; consider talos-mcp config encrypt", "clusters", strings.Join(plain, ","))
+	}
 
 	addr := net.JoinHostPort(cfg.Listen, strconv.Itoa(cfg.Port))
 

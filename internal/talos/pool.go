@@ -46,6 +46,8 @@ type Pool struct {
 	creds     map[string]*Credential
 	discovery map[string]*config.DiscoveryConfig
 	warnings  []string
+	skipped   []string
+	plainKeys []string
 
 	newClient     ClientFactory
 	dialDiscovery DiscoveryDialer
@@ -85,7 +87,7 @@ func WithClock(now func() time.Time) Option {
 
 // LoadPool loads the talosconfig named in cfg and builds the pool from it.
 func LoadPool(cfg *config.Config, opts ...Option) (*Pool, error) {
-	tc, err := config.LoadTalosConfig(cfg.TalosConfig, cfg.Context)
+	tc, err := config.LoadTalosConfig(cfg.TalosConfig, cfg.Context, config.WithUnlock(cfg.Unlock))
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +121,8 @@ func NewPool(tc *config.TalosConfig, opts ...Option) (*Pool, error) {
 		creds:         creds,
 		discovery:     tc.Discovery,
 		warnings:      slices.Clone(tc.Warnings),
+		skipped:       slices.Clone(tc.Skipped),
+		plainKeys:     slices.Clone(tc.PlaintextKeys),
 		newClient:     o.newClient,
 		dialDiscovery: o.dialDiscovery,
 		now:           o.now,
@@ -131,6 +135,16 @@ func NewPool(tc *config.TalosConfig, opts ...Option) (*Pool, error) {
 // blocks, admin credentials and expiring certificates. The caller logs them.
 func (p *Pool) Warnings() []string {
 	return slices.Clone(p.warnings)
+}
+
+// Skipped returns the talosconfig contexts dropped as unusable at startup.
+func (p *Pool) Skipped() []string {
+	return slices.Clone(p.skipped)
+}
+
+// PlaintextKeys returns the clusters whose talosconfig key is not encrypted.
+func (p *Pool) PlaintextKeys() []string {
+	return slices.Clone(p.plainKeys)
 }
 
 // List returns the cluster names, sorted.

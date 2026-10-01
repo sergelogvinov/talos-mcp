@@ -27,6 +27,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sergelogvinov/talos-mcp/internal/secrets"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
 	yaml "go.yaml.in/yaml/v3"
 )
@@ -40,6 +41,13 @@ var (
 	ErrNoContexts         = errors.New("talosconfig has no usable contexts")
 	ErrUnknownContext     = errors.New("unknown context")
 	ErrInvalidDiscovery   = errors.New("invalid discovery block")
+	ErrNoUnlockSource     = errors.New("talosconfig has encrypted fields; set --talosconfig-identity, --talosconfig-passphrase-file, --talosconfig-askpass or TALOSCONFIG_PASSPHRASE")
+)
+
+// Secret field names, as in the talosconfig.
+const (
+	FieldKey           = "key"
+	FieldClusterSecret = "cluster_secret"
 )
 
 // DiscoveryConfig is the optional per-context `discovery` block (design §2.2).
@@ -67,6 +75,11 @@ type TalosConfig struct {
 	// Warnings lists skipped contexts and disabled discovery blocks, for the
 	// caller to log.
 	Warnings []string
+	// Skipped lists the contexts dropped as unusable, sorted by when they
+	// were dropped.
+	Skipped []string
+	// PlaintextKeys lists the usable contexts whose key is not encrypted.
+	PlaintextKeys []string
 
 	// filter is the --context value, empty when all contexts are used.
 	filter string
@@ -80,29 +93,46 @@ type discoveryFile struct {
 	} `yaml:"contexts"`
 }
 
+// ParseOption configures ParseTalosConfig.
+type ParseOption func(*parseOptions)
+
+type parseOptions struct {
+	unlock secrets.Options
+}
+
+// WithUnlock sets the sources that unlock encrypted fields (docs/secrets.md
+// §4). Without it, a talosconfig with encrypted fields is an error.
+func WithUnlock(opts secrets.Options) ParseOption {
+	return func(o *parseOptions) {
+		o.unlock = opts
+	}
+}
+
 // LoadTalosConfig reads the talosconfig at path and validates it. The file is
 // read directly instead of with clientconfig.Open, which creates a missing file.
-func LoadTalosConfig(path, contextFilter string) (*TalosConfig, error) {
+func LoadTalosConfig(path, contextFilter string, opts ...ParseOption) (*TalosConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading talosconfig: %w", err)
 	}
 
-	return ParseTalosConfig(data, contextFilter)
+	return ParseTalosConfig(data, contextFilter, opts...)
 }
 
 // ParseTalosConfig parses and validates talosconfig bytes (design §2.1, §2.2).
-// Unusable contexts are dropped with a warning. contextFilter, when set,
-// restricts the result to that one context.
-func ParseTalosConfig(data []byte, contextFilter string) (*TalosConfig, error) {
-	cfg, err := clientconfig.FromBytes(data)
-	if err != nil {
-		return nil, errors.Join(ErrInvalidTalosConfig, err)
+// Encrypted fields are decrypted in memory (docs/secrets.md §5), and the
+// unlock material is dropped before it returns. Unusable contexts, including
+// ones that do not decrypt, are dropped with a warning. contextFilter, when
+// set, restricts the result to that one context.
+func ParseTalosConfig(data []byte, contextFilter string, opts ...ParseOption) (*TalosConfig, error) {
+	var o parseOptions
+	for _, opt := range opts {
+		opt(&o)
 	}
 
-	var df discoveryFile
-	if err := yaml.Unmarshal(data, &df); err != nil {
-		return nil, errors.Join(ErrInvalidTalosConfig, err)
+	cfg, df, err := parseFile(data)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(cfg.Contexts) == 0 {
@@ -120,24 +150,41 @@ func ParseTalosConfig(data []byte, contextFilter string) (*TalosConfig, error) {
 		filter:    contextFilter,
 	}
 
+	names := contextNames(cfg, contextFilter)
+
+	u := secrets.NewUnlocker(o.unlock)
+	defer u.Close()
+
+	if err := checkUnlock(cfg, df, names, u); err != nil {
+		return nil, err
+	}
+
 	usable := map[string]*clientconfig.Context{}
 
-	for _, name := range sortedKeys(cfg.Contexts) {
-		if contextFilter != "" && name != contextFilter {
-			continue
+	for _, name := range names {
+		plainKey := cfg.Contexts[name] != nil && !secrets.IsEncrypted(cfg.Contexts[name].Key)
+
+		err := validateContext(cfg.Contexts[name])
+		if err == nil {
+			err = decryptContext(cfg.Contexts[name], df.Contexts[name].Discovery, u)
 		}
 
-		if err := validateContext(cfg.Contexts[name]); err != nil {
+		if err != nil {
 			if name == contextFilter {
 				return nil, fmt.Errorf("context %q: %w", name, err)
 			}
 
 			tc.warnf("context %q skipped: %v", name, err)
+			tc.Skipped = append(tc.Skipped, name)
 
 			continue
 		}
 
 		usable[name] = cfg.Contexts[name]
+
+		if plainKey {
+			tc.PlaintextKeys = append(tc.PlaintextKeys, name)
+		}
 
 		if d := df.Contexts[name].Discovery; d != nil {
 			if err := d.validate(); err != nil {
@@ -178,7 +225,9 @@ func (t *TalosConfig) Remove(name, reason string) error {
 
 	delete(t.Config.Contexts, name)
 	delete(t.Discovery, name)
+	t.PlaintextKeys = slices.DeleteFunc(t.PlaintextKeys, func(n string) bool { return n == name })
 	t.warnf("context %q skipped: %s", name, reason)
+	t.Skipped = append(t.Skipped, name)
 
 	if len(t.Config.Contexts) == 0 {
 		return ErrNoContexts
@@ -226,6 +275,162 @@ func (t *TalosConfig) pickCurrent(current, contextFilter string, usable map[stri
 
 func (t *TalosConfig) warnf(format string, args ...any) {
 	t.Warnings = append(t.Warnings, fmt.Sprintf(format, args...))
+}
+
+// NewUnlocker returns an Unlocker for the encrypted fields of the contexts in
+// data: all of them, or only contextFilter. Like ParseTalosConfig, it fails
+// when there are encrypted fields but no unlock source is set, or an
+// identity file cannot be read. The caller closes it.
+func NewUnlocker(data []byte, contextFilter string, opts secrets.Options) (*secrets.Unlocker, error) {
+	cfg, df, err := parseFile(data)
+	if err != nil {
+		return nil, err
+	}
+
+	u := secrets.NewUnlocker(opts)
+
+	if err := checkUnlock(cfg, df, contextNames(cfg, contextFilter), u); err != nil {
+		u.Close()
+
+		return nil, err
+	}
+
+	return u, nil
+}
+
+// ParseClientConfig decodes a talosconfig with clientconfig. A context
+// written with no fields (`old:`) is decoded as an empty context instead of
+// nil, which clientconfig.FromBytes dereferences and panics on.
+func ParseClientConfig(data []byte) (*clientconfig.Config, error) {
+	data, err := fillNullContexts(data)
+	if err != nil {
+		return nil, errors.Join(ErrInvalidTalosConfig, err)
+	}
+
+	cfg, err := clientconfig.FromBytes(data)
+	if err != nil {
+		return nil, errors.Join(ErrInvalidTalosConfig, err)
+	}
+
+	return cfg, nil
+}
+
+// fillNullContexts replaces null context values with empty mappings. data
+// is returned unchanged when there are none.
+func fillNullContexts(data []byte) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+
+	if len(doc.Content) == 0 {
+		return data, nil
+	}
+
+	contexts := mappingValue(doc.Content[0], "contexts")
+	if contexts == nil || contexts.Kind != yaml.MappingNode {
+		return data, nil
+	}
+
+	changed := false
+
+	for i := 1; i < len(contexts.Content); i += 2 {
+		if c := contexts.Content[i]; c.Kind == yaml.ScalarNode && c.Tag == "!!null" {
+			contexts.Content[i] = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			changed = true
+		}
+	}
+
+	if !changed {
+		return data, nil
+	}
+
+	return yaml.Marshal(&doc)
+}
+
+// parseFile decodes a talosconfig and its discovery blocks.
+func parseFile(data []byte) (*clientconfig.Config, *discoveryFile, error) {
+	cfg, err := ParseClientConfig(data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var df discoveryFile
+	if err := yaml.Unmarshal(data, &df); err != nil {
+		return nil, nil, errors.Join(ErrInvalidTalosConfig, err)
+	}
+
+	return cfg, &df, nil
+}
+
+// contextNames returns the sorted context names, or only contextFilter.
+func contextNames(cfg *clientconfig.Config, contextFilter string) []string {
+	var names []string
+
+	for _, name := range sortedKeys(cfg.Contexts) {
+		if contextFilter == "" || name == contextFilter {
+			names = append(names, name)
+		}
+	}
+
+	return names
+}
+
+// checkUnlock fails when the contexts in names have encrypted fields but no
+// unlock source is set, or an identity file cannot be read. Both would make
+// every encrypted context fail, so they are reported once.
+func checkUnlock(cfg *clientconfig.Config, df *discoveryFile, names []string, u *secrets.Unlocker) error {
+	encrypted := false
+
+	for _, name := range names {
+		if c := cfg.Contexts[name]; c != nil && secrets.IsEncrypted(c.Key) {
+			encrypted = true
+		}
+
+		if d := df.Contexts[name].Discovery; d != nil && secrets.IsEncrypted(d.ClusterSecret) {
+			encrypted = true
+		}
+	}
+
+	if !encrypted {
+		return nil
+	}
+
+	if !u.Configured() {
+		return ErrNoUnlockSource
+	}
+
+	return u.Load()
+}
+
+// decryptContext replaces the encrypted key and cluster_secret of a context
+// with their plaintext, base64-encoded like a plain talosconfig value.
+func decryptContext(c *clientconfig.Context, d *DiscoveryConfig, u *secrets.Unlocker) error {
+	if err := decryptField(&c.Key, FieldKey, u); err != nil {
+		return err
+	}
+
+	if d != nil {
+		return decryptField(&d.ClusterSecret, FieldClusterSecret, u)
+	}
+
+	return nil
+}
+
+func decryptField(value *string, field string, u *secrets.Unlocker) error {
+	if !secrets.IsEncrypted(*value) {
+		return nil
+	}
+
+	plain, err := secrets.Decrypt(*value, u)
+	if err != nil {
+		return fmt.Errorf("%s: %w", field, err)
+	}
+
+	*value = base64.StdEncoding.EncodeToString(plain)
+	clear(plain)
+
+	return nil
 }
 
 // validateContext checks the fields the server needs to reach apid.

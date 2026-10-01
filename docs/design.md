@@ -304,10 +304,18 @@ talos-mcp config    encrypt|decrypt|check     # encrypted secrets, see secrets.m
 | `--extensions`                   | `EXTENSIONS`                   | `all`             | persistent |
 | `--log-level`                    | `LOG_LEVEL`                    | `info`            | persistent |
 | `--log-format`                   | `LOG_FORMAT`                   | `text`            | persistent |
+| `--talosconfig-identity`         | `TALOSCONFIG_IDENTITY`         | none              | persistent |
+| `--talosconfig-passphrase-file`  | `TALOSCONFIG_PASSPHRASE_FILE`  | none              | persistent |
+| `--talosconfig-askpass`          | `TALOSCONFIG_ASKPASS`          | none              | persistent |
+| —                                | `TALOSCONFIG_PASSPHRASE`       | none              | persistent |
 | `--port`                         | `PORT`                         | `8080`            | `server`   |
 | `--listen`                       | `LISTEN`                       | `127.0.0.1`       | `server`   |
 | `--disable-localhost-protection` | `DISABLE_LOCALHOST_PROTECTION` | `false`           | `server`   |
+| `--require-all-contexts`         | `REQUIRE_ALL_CONTEXTS`         | `false`           | `server`   |
 | `-o, --output`                   | —                              | `text`            | `tools`    |
+
+The `--talosconfig-*` flags and `TALOSCONFIG_PASSPHRASE` unlock encrypted
+`key` and `cluster_secret` values ([`secrets.md`](secrets.md) §4).
 
 `--extensions` selects tool groups (`cluster`, `node`, or `all`). It is kept
 for parity with the sibling projects and lets a deployment expose only part of
@@ -340,7 +348,9 @@ cmd/talos-mcp/
     config.go        `config encrypt|decrypt|check` subcommands (secrets.md)
 
 internal/
-    config/          Config, talosconfig path resolution & validation
+    config/          Config, talosconfig path resolution & validation,
+                     decryption of encrypted fields at load (secrets.go)
+    secrets/         age encryption of talosconfig fields, unlock sources (secrets.md)
     logger/          slog setup, context injection (copied from proxmox-mcp)
     server/          in-memory MCP client: ListTools / CallTool (copied from proxmox-mcp)
     talos/           Pool: per-context Talos clients, node resolution,
@@ -394,7 +404,9 @@ require (
     github.com/siderolabs/discovery-api             // discovery service gRPC API + affiliate protos
     github.com/spf13/cobra                          // command dispatch
     github.com/spf13/pflag                          // flags
-    go.yaml.in/yaml/v3                              // `tools -o yaml`
+    go.yaml.in/yaml/v3                              // `tools -o yaml`, `config encrypt|decrypt`
+    filippo.io/age                                  // encrypted talosconfig fields (secrets.md)
+    golang.org/x/term                               // passphrase prompt on /dev/tty
     github.com/stretchr/testify                     // tests
 )
 ```

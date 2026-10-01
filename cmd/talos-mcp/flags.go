@@ -20,9 +20,11 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/sergelogvinov/talos-mcp/internal/config"
 	"github.com/sergelogvinov/talos-mcp/internal/logger"
+	"github.com/sergelogvinov/talos-mcp/internal/secrets"
 	"github.com/spf13/pflag"
 )
 
@@ -36,6 +38,10 @@ const (
 	flagPort             = "port"
 	flagListen           = "listen"
 	flagNoHostCheck      = "disable-localhost-protection"
+	flagIdentity         = "talosconfig-identity"
+	flagPassphraseFile   = "talosconfig-passphrase-file"
+	flagAskpass          = "talosconfig-askpass"
+	flagRequireAll       = "require-all-contexts"
 
 	envTalosConfig      = "TALOSCONFIG"
 	envContext          = "TALOS_CONTEXT"
@@ -46,6 +52,11 @@ const (
 	envPort             = "PORT"
 	envListen           = "LISTEN"
 	envNoHostCheck      = "DISABLE_LOCALHOST_PROTECTION"
+	envIdentity         = "TALOSCONFIG_IDENTITY"
+	envPassphraseFile   = "TALOSCONFIG_PASSPHRASE_FILE"
+	envAskpass          = "TALOSCONFIG_ASKPASS"
+	envPassphrase       = "TALOSCONFIG_PASSPHRASE"
+	envRequireAll       = "REQUIRE_ALL_CONTEXTS"
 )
 
 const (
@@ -71,6 +82,19 @@ type Flags struct {
 	NoHostCheck      bool
 	Output           string
 
+	// Unlock sources for encrypted talosconfig fields (docs/secrets.md §4).
+	Identity           []string
+	PassphraseFile     string
+	Askpass            string
+	RequireAllContexts bool
+
+	// passphrase is TALOSCONFIG_PASSPHRASE, removed from the environment
+	// when it is read.
+	passphrase []byte
+	// prompt allows the terminal prompt. Only the tools and config
+	// subcommands set it: in mcp mode stdin is the transport.
+	prompt bool
+
 	// portErr is set when PORT is not a number. Only the server uses the
 	// port, so it reports the error unless --port is given.
 	portErr error
@@ -82,36 +106,46 @@ func DefaultFlags() *Flags {
 	port, portErr := envInt(envPort, defaultPort)
 
 	return &Flags{
-		TalosConfig:      withDefaultEnv(envTalosConfig, ""),
-		Context:          withDefaultEnv(envContext, ""),
-		Extensions:       withDefaultEnv(envExtensions, defaultExtensions),
-		AllowDestructive: withDefaultEnvBool(envAllowDestructive, defaultAllowDestructive),
-		LogLevel:         withDefaultEnv(envLogLevel, defaultLogLevel),
-		LogFormat:        withDefaultEnv(envLogFormat, defaultLogFormat),
-		Port:             port,
-		Listen:           withDefaultEnv(envListen, defaultListen),
-		NoHostCheck:      withDefaultEnvBool(envNoHostCheck, false),
-		Output:           defaultOutputFormat,
-		portErr:          portErr,
+		TalosConfig:        withDefaultEnv(envTalosConfig, ""),
+		Context:            withDefaultEnv(envContext, ""),
+		Extensions:         withDefaultEnv(envExtensions, defaultExtensions),
+		AllowDestructive:   withDefaultEnvBool(envAllowDestructive, defaultAllowDestructive),
+		LogLevel:           withDefaultEnv(envLogLevel, defaultLogLevel),
+		LogFormat:          withDefaultEnv(envLogFormat, defaultLogFormat),
+		Port:               port,
+		Listen:             withDefaultEnv(envListen, defaultListen),
+		NoHostCheck:        withDefaultEnvBool(envNoHostCheck, false),
+		Output:             defaultOutputFormat,
+		Identity:           splitList(withDefaultEnv(envIdentity, "")),
+		PassphraseFile:     withDefaultEnv(envPassphraseFile, ""),
+		Askpass:            withDefaultEnv(envAskpass, ""),
+		RequireAllContexts: withDefaultEnvBool(envRequireAll, false),
+		passphrase:         secrets.TakeEnv(envPassphrase),
+		portErr:            portErr,
 	}
 }
 
 // AddPersistentFlags adds the global flags shared by every subcommand.
 func (f *Flags) AddPersistentFlags(flags *pflag.FlagSet) {
-	flags.StringVarP(&f.TalosConfig, flagTalosConfig, "", f.TalosConfig, "path to the talosconfig file (default: ~/.talos/config)")
-	flags.StringVarP(&f.Context, flagContext, "", f.Context, "restrict the server to a single talosconfig context (default: all contexts)")
-	flags.StringVarP(&f.Extensions, flagExtensions, "", f.Extensions, "comma-separated list of tool groups to enable: cluster, node, or 'all'")
-	flags.BoolVarP(&f.AllowDestructive, flagAllowDestructive, "", f.AllowDestructive, "allow destructive operations (default: false)")
-	flags.StringVarP(&f.LogLevel, flagLogLevel, "", f.LogLevel, "log level: debug, info, warn, error")
-	flags.StringVarP(&f.LogFormat, flagLogFormat, "", f.LogFormat, "log output format: text, json")
+	flags.StringVarP(&f.TalosConfig, flagTalosConfig, "", f.TalosConfig, "path to the talosconfig file, env "+envTalosConfig+" (default: ~/.talos/config)")
+	flags.StringVarP(&f.Context, flagContext, "", f.Context, "restrict the server to a single talosconfig context, env "+envContext+" (default: all contexts)")
+	flags.StringVarP(&f.Extensions, flagExtensions, "", f.Extensions, "comma-separated list of tool groups to enable: cluster, node, or 'all', env "+envExtensions)
+	flags.BoolVarP(&f.AllowDestructive, flagAllowDestructive, "", f.AllowDestructive, "allow destructive operations, env "+envAllowDestructive+" (default: false)")
+	flags.StringVarP(&f.LogLevel, flagLogLevel, "", f.LogLevel, "log level: debug, info, warn, error, env "+envLogLevel)
+	flags.StringVarP(&f.LogFormat, flagLogFormat, "", f.LogFormat, "log output format: text, json, env "+envLogFormat)
+	flags.StringSliceVarP(&f.Identity, flagIdentity, "", f.Identity, "age identity file or OpenSSH private key that decrypts talosconfig fields (repeatable), env "+envIdentity+" (comma-separated)")
+	flags.StringVarP(&f.PassphraseFile, flagPassphraseFile, "", f.PassphraseFile,
+		"file whose first line is the passphrase of encrypted talosconfig fields, env "+envPassphraseFile+"; or set the passphrase itself in "+envPassphrase)
+	flags.StringVarP(&f.Askpass, flagAskpass, "", f.Askpass, "program that prints the passphrase of encrypted talosconfig fields on stdout, env "+envAskpass)
 }
 
 // AddServerFlags adds the flags for the "server" subcommand.
 func (f *Flags) AddServerFlags(flags *pflag.FlagSet) {
-	flags.IntVarP(&f.Port, flagPort, "", f.Port, "http listen port")
-	flags.StringVarP(&f.Listen, flagListen, "", f.Listen, "http listen address; use 0.0.0.0 to accept connections from other hosts")
+	flags.IntVarP(&f.Port, flagPort, "", f.Port, "http listen port, env "+envPort)
+	flags.StringVarP(&f.Listen, flagListen, "", f.Listen, "http listen address; use 0.0.0.0 to accept connections from other hosts, env "+envListen)
 	flags.BoolVarP(&f.NoHostCheck, flagNoHostCheck, "", f.NoHostCheck,
-		"accept requests on a loopback address with a non-localhost Host header, as sent by a sidecar proxy (disables DNS rebinding protection)")
+		"accept requests on a loopback address with a non-localhost Host header, as sent by a sidecar proxy (disables DNS rebinding protection), env "+envNoHostCheck)
+	flags.BoolVarP(&f.RequireAllContexts, flagRequireAll, "", f.RequireAllContexts, "fail to start when any talosconfig context is skipped, env "+envRequireAll+" (default: false)")
 }
 
 // AddToolFlags adds the flags for the "tools" subcommand.
@@ -140,16 +174,53 @@ func (f *Flags) Config() (*config.Config, error) {
 	}
 
 	return &config.Config{
-		TalosConfig:      path,
-		Context:          f.Context,
-		Port:             f.Port,
-		Listen:           f.Listen,
-		NoHostCheck:      f.NoHostCheck,
-		Extensions:       f.Extensions,
-		AllowDestructive: f.AllowDestructive,
-		LogLevel:         f.LogLevel,
-		LogFormat:        f.LogFormat,
+		TalosConfig:        path,
+		Context:            f.Context,
+		Unlock:             f.unlockOptions(),
+		RequireAllContexts: f.RequireAllContexts,
+		Port:               f.Port,
+		Listen:             f.Listen,
+		NoHostCheck:        f.NoHostCheck,
+		Extensions:         f.Extensions,
+		AllowDestructive:   f.AllowDestructive,
+		LogLevel:           f.LogLevel,
+		LogFormat:          f.LogFormat,
 	}, nil
+}
+
+// haveTerminal reports whether a terminal prompt is possible. Tests replace it,
+// so they do not depend on how go test was started.
+var haveTerminal = secrets.HaveTerminal
+
+// unlockOptions returns the unlock sources. The terminal prompt is offered
+// only where f.prompt allows it, when no other passphrase source is set and
+// there is a terminal.
+func (f *Flags) unlockOptions() secrets.Options {
+	opts := secrets.Options{
+		IdentityFiles:  f.Identity,
+		PassphraseFile: f.PassphraseFile,
+		Askpass:        f.Askpass,
+		Passphrase:     f.passphrase,
+	}
+
+	if f.prompt && opts.PassphraseFile == "" && opts.Askpass == "" && opts.Passphrase == nil && haveTerminal() {
+		opts.Prompt = secrets.TerminalPrompt
+	}
+
+	return opts
+}
+
+// splitList splits a comma-separated value, dropping empty items.
+func splitList(value string) []string {
+	var items []string
+
+	for item := range strings.SplitSeq(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+
+	return items
 }
 
 // withDefaultEnv returns the environment value, or def when it is unset or empty.

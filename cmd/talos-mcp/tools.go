@@ -59,6 +59,10 @@ func newToolsCmd(flags *Flags) *cobra.Command {
 				flags.LogLevel = toolsLogLevel
 			}
 
+			// The tools subcommand may prompt on the terminal for a
+			// passphrase; mcp and server never do.
+			flags.prompt = true
+
 			return runTools(cmd.Context(), flags, args)
 		},
 	}

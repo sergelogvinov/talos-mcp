@@ -1,6 +1,6 @@
 # Talos MCP Server — Encrypted Secrets in talosconfig
 
-Status: **proposed**.
+Status: **implemented** (design §15.2 step 13).
 
 ## 1. Problem
 
@@ -92,9 +92,12 @@ the identities first, then the passphrase.
 | ---------------------- | ---------------------------------------------------------------- | ----- |
 | Identity file(s)       | `--talosconfig-identity` / `TALOSCONFIG_IDENTITY` (repeatable, comma-separated) | age identity file (`AGE-SECRET-KEY-1...`) or an OpenSSH private key (`~/.ssh/id_ed25519`). Best for servers: no secret is typed. |
 | Passphrase file        | `--talosconfig-passphrase-file` / `TALOSCONFIG_PASSPHRASE_FILE`  | First line of the file, without the trailing newline. Recommended for Kubernetes: mount it from a Secret. |
-| Askpass program        | `--talosconfig-askpass` / `TALOSCONFIG_ASKPASS`                  | The program prints the passphrase on stdout, like `SSH_ASKPASS`. Works with a GUI prompt, `pass`, 1Password CLI, or macOS `security find-generic-password -w`. It runs with no stdin and a 60s timeout. |
+| Askpass program        | `--talosconfig-askpass` / `TALOSCONFIG_ASKPASS`                  | The program gets the prompt as its argument and prints the passphrase on stdout, like `SSH_ASKPASS`. Works with a GUI prompt, `pass`, 1Password CLI, or macOS `security find-generic-password -w`. It runs with no stdin and a 60s timeout. |
 | Passphrase environment variable | `TALOSCONFIG_PASSPHRASE` (env only, no flag)            | For MCPB bundles (§7). Discouraged elsewhere: environment variables can leak through `/proc/<pid>/environ`, crash dumps and child processes. The server clears it from its own environment after reading it. |
-| Terminal prompt        | automatic                                                        | **Only** for `tools`, and only when `/dev/tty` is available and nothing above is configured. It is **never** used in `mcp` or `server` mode. |
+| Terminal prompt        | automatic                                                        | **Only** for `tools` and `config`, and only when `/dev/tty` is available and no passphrase source above is set. Identity files may be set: the prompt then asks for an encrypted SSH key's passphrase. It is **never** used in `mcp` or `server` mode. |
+
+When several passphrase sources are set, the first in the table wins: file,
+askpass, environment variable, prompt.
 
 Encrypted SSH private keys used as identities are supported. Their
 passphrase comes from the same passphrase sources (file, askpass, env), and

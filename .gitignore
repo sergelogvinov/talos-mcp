@@ -36,4 +36,6 @@ go.work
 go.work.sum
 
 # env file
-.env
+/.env
+/age.txt
+/talosconfig

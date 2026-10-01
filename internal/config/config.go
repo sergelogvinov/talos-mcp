@@ -24,19 +24,23 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sergelogvinov/talos-mcp/internal/secrets"
 )
 
 // Config holds the configuration for the talos-mcp server.
 type Config struct {
-	TalosConfig      string // resolved talosconfig path
-	Context          string // optional: restrict to one context
-	Port             int
-	Listen           string // server listen address
-	NoHostCheck      bool   // server: disable DNS rebinding protection
-	Extensions       string
-	AllowDestructive bool
-	LogLevel         string
-	LogFormat        string
+	TalosConfig        string // resolved talosconfig path
+	Context            string // optional: restrict to one context
+	Unlock             secrets.Options
+	RequireAllContexts bool // server: a skipped context is fatal
+	Port               int
+	Listen             string // server listen address
+	NoHostCheck        bool   // server: disable DNS rebinding protection
+	Extensions         string
+	AllowDestructive   bool
+	LogLevel           string
+	LogFormat          string
 }
 
 // Extension groups selectable with --extensions.

@@ -9,6 +9,11 @@ SHA ?= $(shell git describe --match=none --always --abbrev=7 --dirty)
 TAG ?= $(shell git describe --tag --always --match v[0-9]\*)
 GO_LDFLAGS := -ldflags "-w -s -X main.version=$(TAG) -X main.commit=$(SHA)"
 
+# Microsoft Go (the devcontainer toolchain) runs crypto on OpenSSL, which
+# rejects the empty HKDF secret that age uses for ssh-ed25519 keys. Use Go's
+# own crypto instead. Other toolchains ignore the variable.
+export MS_GO_NOSYSTEMCRYPTO ?= 1
+
 OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
 ARCHS ?= amd64 arm64
