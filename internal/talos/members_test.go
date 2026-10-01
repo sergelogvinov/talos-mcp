@@ -266,6 +266,55 @@ func TestSelectAddress(t *testing.T) {
 	assert.Empty(t, talos.SelectAddress([]string{"fe80::1"}, false), "link-local is never used")
 }
 
+func TestSelectDiscoveryAddress(t *testing.T) {
+	kubespan := "fd71:4a6b:e5a3:9c02::1"
+	siderolink := "fd71:4a6b:e5a3:9c03::1"
+	all := []string{"fe80::1", siderolink, "203.0.113.1", "2001:db8::1", kubespan, "fd00::1", "10.0.0.1"}
+
+	for _, tt := range []struct {
+		name     string
+		addrs    []string
+		expected string
+	}{
+		{name: "private IPv4 first", addrs: all, expected: "10.0.0.1"},
+		{name: "then private IPv6", addrs: all[:6], expected: "fd00::1"},
+		{name: "then KubeSpan", addrs: all[:5], expected: kubespan},
+		{name: "then public IPv6", addrs: all[:4], expected: "2001:db8::1"},
+		{name: "then public IPv4", addrs: all[:3], expected: "203.0.113.1"},
+		{name: "SideroLink is never used", addrs: all[:2]},
+		{name: "DNS name", addrs: []string{"node.example.com"}, expected: "node.example.com"},
+		{name: "first of a kind wins", addrs: []string{"192.168.1.1", "10.0.0.1"}, expected: "192.168.1.1"},
+		{name: "link-local is never used", addrs: []string{"fe80::1"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, talos.SelectDiscoveryAddress(tt.addrs))
+		})
+	}
+}
+
+func TestPoolResolveNodeWithDiscovery(t *testing.T) {
+	st := newMemberState(t,
+		memberFixture{id: "cp-1", hostname: "cp-1", machineType: machine.TypeControlPlane, addresses: []string{"2001:db8::11", "10.0.0.11"}},
+	)
+
+	// Without discovery, the IPv6 endpoint makes IPv6 the preferred family.
+	pool := newMembersPool(t, st, nil, talostest.Context{Name: "prod", Roles: []string{"os:reader"}, Endpoints: []string{"2001:db8::10"}})
+	got, err := pool.ResolveNode(t.Context(), "prod", "cp-1")
+	require.NoError(t, err)
+	assert.Equal(t, "2001:db8::11", got.Address)
+
+	// With discovery, the local network wins.
+	pool = newMembersPool(t, st, nil, talostest.Context{Name: "prod", Roles: []string{"os:reader"}, Endpoints: []string{"2001:db8::10"}, Discovery: "prod-id"})
+	got, err = pool.ResolveNode(t.Context(), "prod", "cp-1")
+	require.NoError(t, err)
+	assert.Equal(t, "10.0.0.11", got.Address)
+
+	targets, err := pool.ResolveAllNodes(t.Context(), "prod")
+	require.NoError(t, err)
+	require.Len(t, targets.Nodes, 1)
+	assert.Equal(t, "10.0.0.11", targets.Nodes[0].Address)
+}
+
 func TestPoolResolveNodeForms(t *testing.T) {
 	st := newMemberState(t,
 		memberFixture{id: "node-id-1", hostname: "cp-1", nodeName: "cp-1.example.com", machineType: machine.TypeControlPlane, addresses: []string{"10.0.0.11"}},

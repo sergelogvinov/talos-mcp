@@ -61,7 +61,7 @@ func TestToolsLogLevel(t *testing.T) {
 		args     []string
 		expected string
 	}{
-		{name: "default is warn", expected: toolsLogLevel},
+		{name: "default is error", expected: toolsLogLevel},
 		{name: "flag wins", args: []string{"--log-level", "debug"}, expected: "debug"},
 		{name: "env wins", env: "info", expected: "info"},
 	} {

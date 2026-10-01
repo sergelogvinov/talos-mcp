@@ -41,7 +41,7 @@ const (
 )
 
 // toolsLogLevel is the default log level of the `tools` subcommand.
-const toolsLogLevel = "warn"
+const toolsLogLevel = "error"
 
 // newToolsCmd creates the `tools` subcommand that lets users invoke MCP tools
 // directly from the CLI without going through an MCP client.
@@ -53,7 +53,7 @@ func newToolsCmd(flags *Flags) *cobra.Command {
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// The tool result is the output here, so INFO logs (session and
-			// call lines) are noise. Warnings and errors are still shown;
+			// call lines) and warnings are noise. Errors are still shown;
 			// an explicit --log-level or LOG_LEVEL wins.
 			if !cmd.Flags().Changed(flagLogLevel) && os.Getenv(envLogLevel) == "" {
 				flags.LogLevel = toolsLogLevel

@@ -476,7 +476,13 @@ func gib(kib uint64) string {
 }
 
 // notFound reports whether a COSI read failed because the resource doesn't
-// exist, as on Talos versions without it.
+// exist, or because the node's Talos version doesn't know its type: the
+// access policy answers PermissionDenied "resource type %q is not supported"
+// (KubeletStatus is new in Talos v1.14.0).
 func notFound(err error) bool {
-	return state.IsNotFoundError(err) || status.Code(err) == codes.NotFound
+	if state.IsNotFoundError(err) || status.Code(err) == codes.NotFound {
+		return true
+	}
+
+	return status.Code(err) == codes.PermissionDenied && strings.HasSuffix(status.Convert(err).Message(), "is not supported")
 }

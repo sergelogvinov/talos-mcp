@@ -277,12 +277,7 @@ func (p *Pool) ResolveNode(ctx context.Context, cluster, node string) (*Resolved
 		return nil, fmt.Errorf("%w %q in cluster %s: matches %s; use an address instead", ErrAmbiguousNode, node, name, memberDetails(matches))
 	}
 
-	endpoints, _, err := p.ContextInfo(name)
-	if err != nil {
-		return nil, err
-	}
-
-	addr := SelectAddress(matches[0].Addresses, preferIPv6(endpoints))
+	addr := p.selectAddress(name, matches[0].Addresses)
 	if addr == "" {
 		return nil, fmt.Errorf("node %q in cluster %s has no usable address", node, name)
 	}
@@ -303,7 +298,8 @@ type NodeTargets struct {
 }
 
 // ResolveAllNodes returns every member of a cluster as a node tool target,
-// with the address picked by SelectAddress. Members without a usable
+// with the address picked by SelectAddress, or by SelectDiscoveryAddress when
+// the cluster has a discovery block. Members without a usable
 // address are left out with a warning. Members that resolve to the same
 // address (such as "10.0.0.1" and "10.0.0.1:50000" in the talosconfig
 // fallback) become one target, so each node is queried once.
@@ -318,7 +314,6 @@ func (p *Pool) ResolveAllNodes(ctx context.Context, cluster string) (*NodeTarget
 		return nil, err
 	}
 
-	preferV6 := p.PreferIPv6(name)
 	targets := &NodeTargets{
 		Nodes:    make([]ResolvedNode, 0, len(list.Members)),
 		Source:   list.Source,
@@ -328,7 +323,7 @@ func (p *Pool) ResolveAllNodes(ctx context.Context, cluster string) (*NodeTarget
 	seen := map[string]string{}
 
 	for _, m := range list.Members {
-		addr := SelectAddress(m.Addresses, preferV6)
+		addr := p.selectAddress(name, m.Addresses)
 
 		switch first, dup := seen[addr]; {
 		case addr == "":
@@ -409,6 +404,73 @@ func SelectAddress(addrs []string, preferV6 bool) string {
 	}
 
 	return ula
+}
+
+// Address ranks of SelectDiscoveryAddress; lower is better.
+const (
+	rankPrivateIPv4 = iota
+	rankPrivateIPv6
+	rankKubeSpan
+	rankPublicIPv6
+	rankPublicIPv4
+	rankOther
+	rankUnusable
+)
+
+// SelectDiscoveryAddress picks the target address of a node in a cluster
+// with a discovery service, where nodes usually share a local network or a
+// KubeSpan mesh. It prefers, in order: a private IPv4, a private IPv6 (ULA),
+// a KubeSpan address, a public IPv6, a public IPv4, then anything else such
+// as a DNS name. Link-local and SideroLink addresses are never used: the
+// SideroLink tunnel is only reachable through Omni.
+// On a tie the first address wins.
+func SelectDiscoveryAddress(addrs []string) string {
+	best, bestRank := "", rankUnusable
+
+	for _, a := range addrs {
+		if r := discoveryAddressRank(a); r < bestRank {
+			best, bestRank = a, r
+		}
+	}
+
+	return best
+}
+
+func discoveryAddressRank(a string) int {
+	ip, err := netip.ParseAddr(a)
+	if err != nil {
+		return rankOther
+	}
+
+	switch {
+	case ip.IsLinkLocalUnicast():
+		return rankUnusable
+	case network.IsULA(ip, network.ULAKubeSpan):
+		return rankKubeSpan
+	case network.IsULA(ip, network.ULASideroLink):
+		return rankUnusable
+	case ip.IsPrivate() && ip.Is4():
+		return rankPrivateIPv4
+	case ip.IsPrivate():
+		return rankPrivateIPv6
+	case ip.IsGlobalUnicast() && ip.Is6():
+		return rankPublicIPv6
+	case ip.IsGlobalUnicast():
+		return rankPublicIPv4
+	default:
+		return rankOther
+	}
+}
+
+// selectAddress picks a member's target address for a cluster: the
+// SelectDiscoveryAddress order when the cluster has a discovery block, else
+// SelectAddress with the endpoints' IP family.
+func (p *Pool) selectAddress(cluster string, addrs []string) string {
+	if _, ok := p.discovery[cluster]; ok {
+		return SelectDiscoveryAddress(addrs)
+	}
+
+	return SelectAddress(addrs, p.PreferIPv6(cluster))
 }
 
 // PreferIPv6 reports whether node addresses of a cluster should be IPv6,

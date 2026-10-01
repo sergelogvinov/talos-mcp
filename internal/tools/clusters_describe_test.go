@@ -216,6 +216,30 @@ func TestClustersDescribeTalosconfigFallback(t *testing.T) {
 		"missing resources on older Talos versions are not warnings")
 }
 
+func TestClustersDescribeOlderTalos(t *testing.T) {
+	fake := describeFake(t)
+
+	// Talos before v1.14.0 has no KubeletStatus type, and its access policy
+	// rejects the read instead of answering NotFound.
+	fake.Nodes["10.0.0.21"].St = state.WrapCore(state.Filter(fake.Nodes["10.0.0.21"].St, func(_ context.Context, access state.Access) error {
+		if access.ResourceType == k8s.KubeletStatusType {
+			return status.Errorf(codes.PermissionDenied, "resource type %q is not supported", access.ResourceType)
+		}
+
+		return nil
+	}))
+
+	tt := newNodeTools(t, fake, nodeContexts()...)
+
+	result, err := tt.ClustersDescribe(t.Context(), "")
+	require.NoError(t, err)
+
+	require.Len(t, result.Nodes, 3)
+	assert.Empty(t, result.Nodes[1].KubernetesVersion)
+	assert.Equal(t, []string{"node worker-2 in cluster prod has no usable address, skipped"}, result.Warnings,
+		"an unknown resource type on an older Talos version is not a warning")
+}
+
 func TestClustersDescribeNoDiscovery(t *testing.T) {
 	discovery := &talostest.FakeDiscovery{Affiliates: affiliatesFixture(t)}
 	dialer, dialed := talostest.StartFakeDiscovery(t, discovery)

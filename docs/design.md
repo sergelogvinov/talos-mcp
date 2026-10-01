@@ -498,6 +498,12 @@ a KubeSpan or SideroLink ULA (`network.IsULA` from `pkg/machinery`) is the
 last resort. `IsULA` only checks two bytes, so an ordinary site ULA subnet
 can look like KubeSpan; such a node stays reachable that way.
 
+When the cluster has a discovery block, nodes usually share a local network
+or a KubeSpan mesh, so the order is instead: a private IPv4, a private IPv6
+(ULA), a KubeSpan address, a public IPv6, a public IPv4, then anything else
+(a DNS name). Link-local and SideroLink addresses are never used: the
+SideroLink tunnel is only reachable through Omni.
+
 Matching is case-insensitive against the hostname, the Kubernetes node name
 (the Members resource ID), the node ID and, for the talosconfig source, the
 configured address or DNS name. A `:port` suffix and IPv6 brackets in `node`
@@ -666,9 +672,11 @@ Talos API calls (all allow `os:reader` in Talos v1.14.2):
 | cluster name               | COSI `Infos.cluster.talos.dev` through the same node            |
 
 `KubeletSpec` and the machine config are `Sensitive` and not readable with
-`os:reader`, so the kubelet version comes from `KubeletStatus`. A resource
-missing on an older Talos version (`NotFound`) leaves its field empty
-without a warning.
+`os:reader`, so the kubelet version comes from `KubeletStatus`, which is
+new in Talos v1.14.0. A resource missing on an older Talos version leaves its
+field empty without a warning: a missing resource answers `NotFound`, and an
+unknown resource type answers `PermissionDenied` "resource type ... is not
+supported" from the node's access policy; both count as missing.
 
 Each node is queried on its own with `client.WithNode`, at most 8 nodes at a
 time, under the 60s aggregate timeout (§6). machinery v1.14.2 deprecates
