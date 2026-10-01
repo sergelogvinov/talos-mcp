@@ -18,11 +18,13 @@ limitations under the License.
 package tools
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sergelogvinov/talos-mcp/internal/config"
 	"github.com/sergelogvinov/talos-mcp/internal/talos"
+	"github.com/sergelogvinov/talos-mcp/internal/utils"
 )
 
 // TalosTools provides tool handlers with access to the Talos client pool.
@@ -30,6 +32,9 @@ type TalosTools struct {
 	pool             *talos.Pool
 	allowDestructive bool
 	extensions       map[string]bool
+
+	// sanitizer masks secrets in log and dmesg lines (design §10).
+	sanitizer *utils.Sanitizer
 
 	// registered lists the tools added by RegisterTools, so
 	// talos_clusters_list can report which of them each cluster can use.
@@ -41,15 +46,41 @@ type toolSpec struct {
 	name          string
 	minRole       talos.Role
 	needDiscovery bool
+	// apis are the apid gRPC methods the tool calls, checked against the
+	// Talos role rules in tests (§15.1 item 2).
+	apis []string
 }
+
+// apid methods called by the tools.
+const (
+	apiLogs        = "/machine.MachineService/Logs"
+	apiDmesg       = "/machine.MachineService/Dmesg"
+	apiServiceList = "/machine.MachineService/ServiceList"
+	apiCOSIList    = "/cosi.resource.State/List"
+)
 
 // NewTalosTools creates tool handlers backed by the given pool. extensions
 // is the parsed --extensions value (config.ParseExtensions).
 func NewTalosTools(pool *talos.Pool, allowDestructive bool, extensions map[string]bool) *TalosTools {
+	// The configured cluster_secret values are masked as literals.
+	clusters := pool.ClustersWithDiscovery()
+	secrets := make([]string, 0, len(clusters))
+
+	for _, name := range clusters {
+		secrets = append(secrets, pool.Discovery(name).ClusterSecret)
+	}
+
+	sanitizer, err := utils.NewTalosSanitizer(secrets...)
+	if err != nil {
+		// The patterns are constants; a failure is a programming error.
+		panic(fmt.Sprintf("building the log sanitizer: %v", err))
+	}
+
 	return &TalosTools{
 		pool:             pool,
 		allowDestructive: allowDestructive,
 		extensions:       extensions,
+		sanitizer:        sanitizer,
 	}
 }
 
@@ -62,6 +93,16 @@ func (t *TalosTools) RegisterTools(srv *mcp.Server) {
 		// The discovery tool needs at least one cluster with discovery keys (§9).
 		if len(t.pool.ClustersWithDiscovery()) > 0 {
 			t.RegisterClustersMembers(srv)
+		}
+	}
+
+	if t.enabled(config.ExtensionNode) {
+		t.RegisterNodeLogs(srv)
+		t.RegisterNodeDmesg(srv)
+
+		// The destructive tool needs the flag and at least one operator cluster (§9).
+		if t.allowDestructive && len(t.pool.ClustersWithRole(talos.RoleOperator)) > 0 {
+			t.RegisterNodeReboot(srv)
 		}
 	}
 }

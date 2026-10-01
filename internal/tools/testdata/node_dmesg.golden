@@ -1,0 +1,3 @@
+dmesg on prod/10.0.0.21: 2 lines (truncated)
+2026-10-01T10:00:03Z kern.err eth0: link up
+not in kmsg format

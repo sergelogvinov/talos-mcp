@@ -65,3 +65,38 @@ type KubeSpanInfo struct {
 	PublicKey           string   `json:"public_key" jsonschema:"WireGuard public key"`
 	AdditionalAddresses []string `json:"additional_addresses,omitempty" jsonschema:"Routed prefixes"`
 }
+
+// NodeLogsResult is the structured output of the talos_node_logs tool.
+type NodeLogsResult struct {
+	Cluster   string   `json:"cluster" jsonschema:"Cluster name"`
+	Node      string   `json:"node" jsonschema:"Node address the logs were read from"`
+	NodeName  string   `json:"node_name,omitempty" jsonschema:"Node hostname, when the node was given by name"`
+	Service   string   `json:"service" jsonschema:"Service or container id"`
+	Lines     []string `json:"lines" jsonschema:"Log lines, oldest first, sanitized"`
+	Count     int      `json:"count" jsonschema:"Number of lines returned"`
+	Truncated bool     `json:"truncated" jsonschema:"More lines were available than returned, or a line was cut at 4 KiB"`
+	Warnings  []string `json:"warnings,omitempty" jsonschema:"Warnings"`
+}
+
+// NodeDmesgResult is the structured output of the talos_node_dmesg tool.
+type NodeDmesgResult struct {
+	Cluster   string   `json:"cluster" jsonschema:"Cluster name"`
+	Node      string   `json:"node" jsonschema:"Node address the kernel log was read from"`
+	NodeName  string   `json:"node_name,omitempty" jsonschema:"Node hostname, when the node was given by name"`
+	Lines     []string `json:"lines" jsonschema:"Kernel log lines (<time> <facility>.<priority> <message>), oldest first, sanitized"`
+	Count     int      `json:"count" jsonschema:"Number of lines returned"`
+	Truncated bool     `json:"truncated" jsonschema:"More lines were available than returned, or a line was cut at 4 KiB"`
+	Warnings  []string `json:"warnings,omitempty" jsonschema:"Warnings"`
+}
+
+// NodeRebootResult is the structured output of the talos_node_reboot tool.
+type NodeRebootResult struct {
+	Cluster  string `json:"cluster" jsonschema:"Cluster name"`
+	Node     string `json:"node" jsonschema:"Node address the reboot was sent to"`
+	Hostname string `json:"hostname,omitempty" jsonschema:"Node hostname, when known"`
+	Mode     string `json:"mode" jsonschema:"Reboot mode: default or powercycle"`
+	Accepted bool   `json:"accepted" jsonschema:"Talos accepted the reboot request"`
+	ActorID  string `json:"actor_id,omitempty" jsonschema:"Talos actor id to correlate events"`
+	Etcd     string `json:"etcd,omitempty" jsonschema:"Result of the etcd quorum check, for control plane nodes"`
+	Hint     string `json:"hint" jsonschema:"Next step"`
+}

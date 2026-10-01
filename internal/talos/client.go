@@ -35,8 +35,9 @@ type Client interface {
 	Logs(ctx context.Context, namespace string, driver common.ContainerDriver, id string, follow bool, tailLines int32) (machineapi.MachineService_LogsClient, error)
 	Dmesg(ctx context.Context, follow, tail bool) (machineapi.MachineService_DmesgClient, error)
 	EventsWatchV2(ctx context.Context, ch chan<- client.EventResult, opts ...client.EventsOptionFunc) error
-	Reboot(ctx context.Context, opts ...client.RebootMode) error
+	RebootWithResponse(ctx context.Context, opts ...client.RebootMode) (*machineapi.RebootResponse, error)
 	EtcdMemberList(ctx context.Context, req *machineapi.EtcdMemberListRequest, callOptions ...grpc.CallOption) (*machineapi.EtcdMemberListResponse, error)
+	EtcdStatus(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.EtcdStatusResponse, error)
 	// State is the COSI state, for resource Get/List (client.Client.COSI).
 	State() state.State
 	Close() error

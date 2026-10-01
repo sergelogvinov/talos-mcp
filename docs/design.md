@@ -773,9 +773,9 @@ Returns the tail of a Talos service's logs on one node, or of a Kubernetes
 container's logs read through containerd.
 
 ```go
-type nodeLogsInput struct {
+type NodeLogsInput struct {
     Cluster    string `json:"cluster,omitempty" jsonschema:"Cluster name; default is current"`
-    Node       string `json:"node" jsonschema:"Target node (IP or hostname)"`
+    Node       string `json:"node,omitempty" jsonschema:"Target node (IP or hostname); default is the single talosconfig node"`
     Service    string `json:"service" jsonschema:"Service id, e.g. kubelet, etcd, apid, machined, containerd, cri; or container id with kubernetes=true"`
     Kubernetes bool   `json:"kubernetes,omitempty" jsonschema:"Read logs of a Kubernetes container (k8s.io namespace) instead of a Talos service"`
     Tail       int    `json:"tail,omitempty" jsonschema:"Number of lines from the end (default 100, max 1000)"`
@@ -784,11 +784,13 @@ type nodeLogsInput struct {
 
 type NodeLogsResult struct {
     Cluster   string   `json:"cluster"`
-    Node      string   `json:"node"`
+    Node      string   `json:"node"`                // address used
+    NodeName  string   `json:"node_name,omitempty"` // hostname, when given by name
     Service   string   `json:"service"`
     Lines     []string `json:"lines"`
     Count     int      `json:"count"`
-    Truncated bool     `json:"truncated" jsonschema:"More lines were available than returned"`
+    Truncated bool     `json:"truncated" jsonschema:"More lines were available than returned, or a line was cut at 4 KiB"`
+    Warnings  []string `json:"warnings,omitempty"` // e.g. the talosconfig fallback of node resolution
 }
 ```
 
@@ -797,21 +799,29 @@ For services, namespace is `system` and driver is `CONTAINERD`. With
 `kubernetes=true`, namespace is `k8s.io` and driver is `CRI`. The stream is
 read with `client.NewLineReader`.
 
-- Without `grep`, the server sends `tailLines=Tail` and filters nothing.
-- With `grep`, it asks for a larger window (`tailLines = 10×Tail`, at most
-  10 000 lines), filters, then keeps the last `Tail` matches.
+- Without `grep`, the server reads a window of `Tail` lines and filters
+  nothing.
+- With `grep`, the window is `10×Tail` lines (at most 10 000); it filters,
+  then keeps the last `Tail` matches.
+- The server asks apid for one line more than the window (`tailLines =
+  window+1`), so `Truncated` is exact: more lines existed, more matches
+  existed, or a line was cut.
+- `tail` is 1–1000 (0 means 100); other values are an input error (§11).
+- The request goes to the node with `client.WithNode`, through the
+  context endpoints.
 
-Every line goes through the sanitizer (§10). If the service id is unknown,
-the error includes the node's service list from `ServiceList`.
+Every line goes through the sanitizer (§10). If `Logs` fails for a Talos
+service (not with `kubernetes=true`), the server calls `ServiceList`, and if
+the id is not there, the error lists the node's services.
 
 ### 8.6 `talos_node_dmesg`
 
 Returns the tail of the kernel ring buffer on one node.
 
 ```go
-type nodeDmesgInput struct {
+type NodeDmesgInput struct {
     Cluster string `json:"cluster,omitempty" jsonschema:"Cluster name; default is current"`
-    Node    string `json:"node" jsonschema:"Target node (IP or hostname)"`
+    Node    string `json:"node,omitempty" jsonschema:"Target node (IP or hostname); default is the single talosconfig node"`
     Tail    int    `json:"tail,omitempty" jsonschema:"Number of lines from the end (default 100, max 1000)"`
     Grep    string `json:"grep,omitempty" jsonschema:"Case-insensitive substring filter applied before tail"`
 }
@@ -819,16 +829,20 @@ type nodeDmesgInput struct {
 type NodeDmesgResult struct {
     Cluster   string   `json:"cluster"`
     Node      string   `json:"node"`
+    NodeName  string   `json:"node_name,omitempty"`
     Lines     []string `json:"lines"`
     Count     int      `json:"count"`
     Truncated bool     `json:"truncated"`
+    Warnings  []string `json:"warnings,omitempty"`
 }
 ```
 
 Implementation: `client.Dmesg(ctx, follow=false, tail=false)` streams the whole
 ring buffer, which is bounded by the kernel buffer size. The server keeps the
-last N lines (after `grep`) in a ring. Each line is formatted as
-`<RFC3339 time> <facility>.<priority> <message>` and sanitized.
+last N lines (after `grep`) in a ring. machined sends one message per frame
+as `<facility>: <priority>: [<RFC3339Nano>]: <message>` (checked in Talos
+v1.14.2); each is rewritten as `<RFC3339 time> <facility>.<priority>
+<message>` and sanitized. A line in another format is kept as is.
 
 ### 8.7 `talos_node_reboot` (destructive)
 
@@ -837,7 +851,7 @@ wait for the node to come back. Agents check progress with
 `talos_clusters_event` or `talos_clusters_describe`.
 
 ```go
-type nodeRebootInput struct {
+type NodeRebootInput struct {
     Cluster string `json:"cluster" jsonschema:"Cluster name; required, enum of operator clusters (§9)"`
     Node    string `json:"node" jsonschema:"Target node (IP or hostname); exactly one node"`
     Mode    string `json:"mode,omitempty" jsonschema:"default (graceful) or powercycle (skip kexec)"`
@@ -850,7 +864,8 @@ type NodeRebootResult struct {
     Mode     string `json:"mode"`
     Accepted bool   `json:"accepted"`
     ActorID  string `json:"actor_id,omitempty" jsonschema:"Talos actor id to correlate events"`
-    Hint     string `json:"hint" jsonschema:"Next step, e.g. call talos_clusters_event with node=..."`
+    Etcd     string `json:"etcd,omitempty" jsonschema:"Result of the etcd quorum check, for control plane nodes"`
+    Hint     string `json:"hint" jsonschema:"Next step"`
 }
 ```
 
@@ -862,13 +877,26 @@ Safety rules:
   addresses are rejected.
 - `mode` accepts `default` or `powercycle`. Any other value is rejected.
 - Before rebooting a control plane node, the tool checks etcd quorum
-  (`EtcdMemberList` plus a health probe). If rebooting the node would leave
-  fewer than a majority of healthy members, the tool refuses. The check runs
-  only when the node's role is `controlplane`.
+  (`EtcdMemberList` plus an `EtcdStatus` probe of each voting member, 5s
+  each). If rebooting the node would leave fewer than a majority of healthy
+  voting members, the tool refuses and says which members are unhealthy.
+  - Whether the node is a control plane node is decided by etcd membership
+    (hostname, or an address in its peer/client URLs), so a node given by IP
+    is checked too. A node that `Pool.Members` reports as a worker skips the
+    etcd calls. A node outside etcd is rebooted without a check.
+  - If the member list can't be read, the reboot is refused ("cannot verify
+    etcd quorum"): the tool never reboots blind.
+  - Learners don't count toward quorum; rebooting a learner is allowed.
+  - An unhealthy target doesn't lower the healthy count, so a broken control
+    plane node can still be rebooted when the others are healthy.
+  - A single-node control plane is always refused (0 of 1 would stay
+    healthy). Reboot it with `talosctl` when that is intended.
 - The call is logged at `info` level with cluster, node and mode by the
   logging middleware, the same as in proxmox-mcp.
 
-Implementation: `client.Reboot(client.WithNode(ctx, node), client.WithRebootMode(mode))`.
+Implementation: `RebootWithResponse(client.WithNode(ctx, node), mode option)`;
+the response carries the actor ID. Rejections (role, missing or several
+nodes, bad mode) happen before any Talos client is created.
 
 ## 9. Role-based Tool Gating
 
@@ -918,9 +946,14 @@ cluster, so the tool is simply present or absent.
   `machine.token`, `cluster.secret` and base64 PEM in config dumps. The
   configured `cluster_secret` values are also added to the sanitizer as
   literal strings to mask. Masking is always on.
-- Output size is capped: `tail` is clamped to 1000 lines and each line to
-  4 KiB (longer lines are cut with an `…` marker). `Truncated` reports whether
-  anything was cut.
+- Output size is capped: `tail` is at most 1000 lines, and each line is cut
+  to 4 KiB with an `…` marker. A line is read and sanitized up to 64 KiB
+  *before* it is cut, so a secret straddling the cut is still masked; the
+  rest of a longer line is skipped. `Truncated` reports whether anything
+  was cut.
+- `grep` matches the sanitized line, never the raw one. Otherwise repeated
+  calls with longer `grep` prefixes could recover a masked value one
+  character at a time.
 
 ## 11. Error Handling
 
@@ -1001,7 +1034,9 @@ cluster, so the tool is simply present or absent.
 - `internal/tools`: handler tests against a fake Talos client. The pool hands
   out a small interface (`Version`, `ServiceList`, `Logs`, `Dmesg`,
   `EventsWatchV2`, `Reboot`, `EtcdMemberList`, COSI list) so a fake can stand
-  in. Include golden tests for the text output.
+  in (`talostest.FakeClient`; reboot uses `RebootWithResponse` for the actor
+  ID, and the quorum check `EtcdMemberList` and `EtcdStatus`). Include golden
+  tests for the text output.
 - `internal/utils`: sanitizer tests, ported from mimiops and extended with
   Talos secrets.
 - `internal/talos`: role parsing from certificate fixtures (reader, operator,
@@ -1034,10 +1069,12 @@ starting:
 1. **Unknown keys in talosconfig (§2.2).** Settled in step 3:
    `clientconfig.FromBytes` ignores the `discovery` key in `pkg/machinery`
    v1.14.2, so nothing is stripped.
-2. **Min roles (§2.3).** Already checked against Talos `main`: `Logs`,
-   `Dmesg` and the other read APIs allow `os:reader`. Check the same rules
-   file again in the pinned release, and add a test that fails when a read
-   tool's API is not in the reader set.
+2. **Min roles (§2.3).** Settled in step 8: re-checked in Talos v1.14.2
+   (`machined.go`); `Logs`, `Dmesg`, `ServiceList` and COSI `List` allow
+   `os:reader`. Each tool records the apid methods it calls in its
+   `toolSpec`, and `TestReaderToolsUseReaderAPIs` fails when a reader tool
+   calls a method outside the v1.14.2 reader set. Update that set when
+   `pkg/machinery` is bumped.
 3. **Discovery cipher helper (§2.2).** Settled in step 7: the decryption
    is inline in the unexported `parseReply` of `discovery-client` v0.1.15,
    so it is copied with attribution. Only `discovery-api` v0.1.8 is a

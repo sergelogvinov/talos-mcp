@@ -217,8 +217,11 @@ type ResolvedNode struct {
 	// Address is passed to apid as the target node.
 	Address string
 	// Name is the hostname when known, else the address.
-	Name     string
-	Warnings []string
+	Name string
+	// MachineType is controlplane or worker when the node was found in the
+	// Members resource, empty when unknown (an IP, or the talosconfig source).
+	MachineType string
+	Warnings    []string
 }
 
 // ResolveNode maps a node tool's `node` argument to an address (design §6.1):
@@ -281,7 +284,7 @@ func (p *Pool) ResolveNode(ctx context.Context, cluster, node string) (*Resolved
 		return nil, fmt.Errorf("node %q in cluster %s has no usable address", node, name)
 	}
 
-	return &ResolvedNode{Address: addr, Name: matches[0].Name(), Warnings: list.Warnings}, nil
+	return &ResolvedNode{Address: addr, Name: matches[0].Name(), MachineType: matches[0].MachineType, Warnings: list.Warnings}, nil
 }
 
 // matches reports whether node names this member: its hostname, node name,

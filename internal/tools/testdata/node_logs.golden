@@ -1,0 +1,3 @@
+kubelet logs on prod/10.0.0.21: 2 lines (truncated)
+E1001 token=*** rejected
+I1001 node ready

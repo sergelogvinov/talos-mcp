@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sergelogvinov/talos-mcp/internal/config"
 	"github.com/sergelogvinov/talos-mcp/internal/talos"
 	"github.com/sergelogvinov/talos-mcp/internal/talos/talostest"
@@ -120,4 +121,71 @@ func TestTalosErrorKeepsCause(t *testing.T) {
 	cause := errors.New("boom")
 	got := (&TalosTools{pool: pool}).talosError(t.Context(), cause, "prod", "Version")
 	assert.ErrorIs(t, got, cause)
+}
+
+// readerAPIs are the apid methods that allow os:reader in Talos v1.14.2
+// (internal/app/machined/pkg/system/services/machined.go), for the methods
+// the tools use. Update it when pkg/machinery is bumped (design §2.3).
+var readerAPIs = map[string]bool{
+	"/machine.MachineService/Dmesg":          true,
+	"/machine.MachineService/EtcdMemberList": true,
+	"/machine.MachineService/EtcdStatus":     true,
+	"/machine.MachineService/Events":         true,
+	"/machine.MachineService/Logs":           true,
+	"/machine.MachineService/LogsContainers": true,
+	"/machine.MachineService/ServiceList":    true,
+	"/machine.MachineService/Version":        true,
+	"/cosi.resource.State/Get":               true,
+	"/cosi.resource.State/List":              true,
+	"/cosi.resource.State/Watch":             true,
+}
+
+// TestReaderToolsUseReaderAPIs fails when a tool open to os:reader calls an
+// apid method that os:reader may not call (design §15.1 item 2).
+func TestReaderToolsUseReaderAPIs(t *testing.T) {
+	tc, err := config.ParseTalosConfig([]byte(talostest.TalosConfig(t, time.Now(),
+		talostest.Context{Name: "prod", Roles: []string{"os:operator"}, Discovery: "prod-id"},
+	)), "")
+	require.NoError(t, err)
+
+	pool, err := talos.NewPool(tc)
+	require.NoError(t, err)
+
+	tt := NewTalosTools(pool, true, map[string]bool{config.ExtensionCluster: true, config.ExtensionNode: true})
+	tt.RegisterTools(mcp.NewServer(&mcp.Implementation{Name: "test", Version: "dev"}, nil))
+
+	require.NotEmpty(t, tt.registered)
+
+	require.Contains(t, toolNames(tt.registered), ToolNodeReboot, "the operator tool is checked too")
+
+	for _, spec := range tt.registered {
+		allowed := readerAPIs
+		if spec.minRole == talos.RoleOperator {
+			allowed = operatorAPIs
+		}
+
+		for _, api := range spec.apis {
+			assert.True(t, allowed[api], "%s is open to os:%s but calls %s", spec.name, spec.minRole, api)
+		}
+	}
+}
+
+// operatorAPIs adds the operator-only methods the tools use to readerAPIs
+// (Talos v1.14.2).
+var operatorAPIs = func() map[string]bool {
+	m := map[string]bool{"/machine.MachineService/Reboot": true}
+	for api := range readerAPIs {
+		m[api] = true
+	}
+
+	return m
+}()
+
+func toolNames(specs []toolSpec) []string {
+	names := make([]string, 0, len(specs))
+	for _, s := range specs {
+		names = append(names, s.name)
+	}
+
+	return names
 }

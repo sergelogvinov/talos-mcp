@@ -17,11 +17,15 @@ limitations under the License.
 package tools
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sergelogvinov/talos-mcp/internal/logger"
@@ -101,4 +105,188 @@ func grpcMessage(err error) string {
 	}
 
 	return err.Error()
+}
+
+// Output caps for log and dmesg lines (design §10).
+const (
+	defaultTail    = 100
+	maxTail        = 1000
+	grepWindowMult = 10
+	maxGrepWindow  = 10000
+	maxLineBytes   = 4096
+	// maxReadLine bounds how much of one line is read and sanitized before
+	// it is cut to maxLineBytes, so a secret is masked before the cut.
+	maxReadLine = 64 * 1024
+	cutMarker   = "…"
+)
+
+// tailOrDefault validates the tail argument: 0 means defaultTail.
+func tailOrDefault(tail int) (int, error) {
+	switch {
+	case tail == 0:
+		return defaultTail, nil
+	case tail < 0 || tail > maxTail:
+		return 0, fmt.Errorf("invalid tail %d: must be between 1 and %d", tail, maxTail)
+	default:
+		return tail, nil
+	}
+}
+
+// grepWindow is how many lines to read so that tail matches of grep can be
+// found: tail without grep, 10×tail with it, at most maxGrepWindow.
+func grepWindow(tail int, grep string) int {
+	if grep == "" {
+		return tail
+	}
+
+	return min(tail*grepWindowMult, maxGrepWindow)
+}
+
+// lineWindow keeps the last n sanitized lines that match grep, capped.
+type lineWindow struct {
+	n       int
+	grep    string // lower-cased
+	clean   func(string) string
+	ring    []string
+	next    int
+	matches int
+	cut     bool
+}
+
+func newLineWindow(n int, grep string, clean func(string) string) *lineWindow {
+	return &lineWindow{n: n, grep: strings.ToLower(grep), clean: clean, ring: make([]string, 0, n)}
+}
+
+// add sanitizes, filters and stores one line. cut reports that the reader
+// already dropped the end of the line.
+func (w *lineWindow) add(line string, cut bool) {
+	// Sanitize before grep: matching the raw line would let repeated grep
+	// calls probe a masked secret one character at a time.
+	line = w.clean(strings.TrimRight(line, "\r\n"))
+
+	if w.grep != "" && !strings.Contains(strings.ToLower(line), w.grep) {
+		return
+	}
+
+	w.matches++
+
+	if capped, ok := capLine(line); ok || cut {
+		line = capped
+		if cut && !ok {
+			line += cutMarker
+		}
+
+		w.cut = true
+	}
+
+	if len(w.ring) < w.n {
+		w.ring = append(w.ring, line)
+
+		return
+	}
+
+	w.ring[w.next] = line
+	w.next = (w.next + 1) % w.n
+}
+
+// lines returns the kept lines, oldest first, and whether lines were dropped
+// or cut.
+func (w *lineWindow) lines() ([]string, bool) {
+	out := make([]string, 0, len(w.ring))
+	out = append(out, w.ring[w.next:]...)
+	out = append(out, w.ring[:w.next]...)
+
+	return out, w.cut || w.matches > w.n
+}
+
+// capLine cuts a line to maxLineBytes on a rune boundary and adds the marker.
+func capLine(line string) (string, bool) {
+	if len(line) <= maxLineBytes {
+		return line, false
+	}
+
+	cut := maxLineBytes
+	for cut > 0 && !utf8.RuneStart(line[cut]) {
+		cut--
+	}
+
+	return line[:cut] + cutMarker, true
+}
+
+// readLines calls fn for each line of r. A line longer than maxReadLine is
+// passed truncated, with cut set, and the rest of it is discarded.
+func readLines(r io.Reader, fn func(line string, cut bool)) error {
+	br := bufio.NewReaderSize(r, maxReadLine)
+
+	for {
+		chunk, err := br.ReadSlice('\n')
+
+		switch {
+		case errors.Is(err, bufio.ErrBufferFull):
+			fn(string(chunk), true)
+
+			// Discard the rest of the long line.
+			for errors.Is(err, bufio.ErrBufferFull) {
+				_, err = br.ReadSlice('\n')
+			}
+
+			switch {
+			case errors.Is(err, io.EOF):
+				return nil
+			case err != nil:
+				return err
+			}
+		case err == nil:
+			fn(string(chunk), false)
+		case errors.Is(err, io.EOF):
+			if len(chunk) > 0 {
+				fn(string(chunk), false)
+			}
+
+			return nil
+		default:
+			if len(chunk) > 0 {
+				fn(string(chunk), false)
+			}
+
+			return err
+		}
+	}
+}
+
+// linesResult renders log-like output as a one-line header followed by the
+// lines (design §10), next to the structured result.
+func linesResult[T any](header string, lines []string, result *T) (*mcp.CallToolResult, T, error) {
+	var b bytes.Buffer
+
+	b.WriteString(header)
+	b.WriteByte('\n')
+
+	for _, l := range lines {
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: strings.TrimRight(b.String(), "\n")}},
+	}, *result, nil
+}
+
+// linesHeader is the one-line header of log-like text output, e.g.
+// "kubelet logs on prod/worker-1 (10.0.0.21): 50 lines (truncated)",
+// followed by any warnings.
+func linesHeader(what, cluster, node string, count int, truncated bool, warnings []string) string {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "%s on %s/%s: %d lines", what, cluster, node, count)
+
+	if truncated {
+		b.WriteString(" (truncated)")
+	}
+
+	for _, w := range warnings {
+		b.WriteString("\nwarning: " + w)
+	}
+
+	return b.String()
 }
