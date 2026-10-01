@@ -31,6 +31,8 @@ type Config struct {
 	TalosConfig      string // resolved talosconfig path
 	Context          string // optional: restrict to one context
 	Port             int
+	Listen           string // server listen address
+	NoHostCheck      bool   // server: disable DNS rebinding protection
 	Extensions       string
 	AllowDestructive bool
 	LogLevel         string

@@ -296,16 +296,18 @@ talos-mcp version
 talos-mcp config    encrypt|decrypt|check     # encrypted secrets, see secrets.md
 ```
 
-| Flag                  | Env                 | Default            | Scope      |
-| --------------------- | ------------------- | ------------------ | ---------- |
-| `--talosconfig`       | `TALOSCONFIG`       | `~/.talos/config`  | persistent |
-| `--context`           | `TALOS_CONTEXT`     | "" (all contexts)  | persistent |
-| `--allow-destructive` | `ALLOW_DESTRUCTIVE` | `false`            | persistent |
-| `--extensions`        | `EXTENSIONS`        | `all`              | persistent |
-| `--log-level`         | `LOG_LEVEL`         | `info`             | persistent |
-| `--log-format`        | `LOG_FORMAT`        | `text`             | persistent |
-| `--port`              | `PORT`              | `8080`             | `server`   |
-| `-o, --output`        | —                   | `text`             | `tools`    |
+| Flag                             | Env                            | Default           | Scope      |
+| -------------------------------- | ------------------------------ | ----------------- | ---------- |
+| `--talosconfig`                  | `TALOSCONFIG`                  | `~/.talos/config` | persistent |
+| `--context`                      | `TALOS_CONTEXT`                | "" (all contexts) | persistent |
+| `--allow-destructive`            | `ALLOW_DESTRUCTIVE`            | `false`           | persistent |
+| `--extensions`                   | `EXTENSIONS`                   | `all`             | persistent |
+| `--log-level`                    | `LOG_LEVEL`                    | `info`            | persistent |
+| `--log-format`                   | `LOG_FORMAT`                   | `text`            | persistent |
+| `--port`                         | `PORT`                         | `8080`            | `server`   |
+| `--listen`                       | `LISTEN`                       | `127.0.0.1`       | `server`   |
+| `--disable-localhost-protection` | `DISABLE_LOCALHOST_PROTECTION` | `false`           | `server`   |
+| `-o, --output`                   | —                              | `text`            | `tools`    |
 
 `--extensions` selects tool groups (`cluster`, `node`, or `all`). It is kept
 for parity with the sibling projects and lets a deployment expose only part of
@@ -1060,13 +1062,25 @@ cluster, so the tool is simply present or absent.
   gRPC/TLS to the discovery endpoint (`discovery.talos.dev:443` by default).
   The Helm chart's optional NetworkPolicy allows that endpoint alongside the
   Talos endpoints.
-- **Streamable HTTP (`server`)** serves `/mcp` and `/healthz` on `:<port>`,
-  the same as in proxmox-mcp. Sessions with no request for an hour are
-  closed. On SIGINT/SIGTERM the server stops accepting connections and ends
-  standing SSE streams (GET) at once, because they never finish on their
-  own. Tool calls in flight get 5s to finish before their connections are
-  closed. A signal does not cancel a call before that. Every caller shares
-  the mounted talosconfig credentials. There is no per-request credential
+- **Streamable HTTP (`server`)** serves `/mcp` and `/healthz` on
+  `<listen>:<port>`, the same as in proxmox-mcp. `--listen` defaults to
+  `127.0.0.1`, because the endpoint has no authentication and acts with the
+  talosconfig credentials. The container image sets `LISTEN=0.0.0.0`. The
+  SDK's DNS rebinding protection rejects a request that arrives on a loopback
+  address with a non-localhost `Host` header. `--disable-localhost-protection`
+  turns it off for a sidecar proxy that forwards to 127.0.0.1. A `PORT` value
+  that is not a number is an error, not a silent fallback to 8080. Sessions
+  with no request for an hour are closed.
+- **Shutdown:** on SIGINT/SIGTERM the server stops accepting connections and
+  ends standing SSE streams (GET) at once, because they never finish on their
+  own. Tool calls in flight get 5s to finish. The SDK runs tool handlers on
+  the session context, which nothing cancels, so a middleware gives every
+  request a context the server can cancel. After the 5s the calls are
+  canceled and get 2s to return. Then the connections and sessions are
+  closed, and only then the Talos pool. A `Serve` error stops the server the
+  same way, without the grace period. The HTTP request contexts don't take
+  the signal, so a POST still gets the response of a call that finishes in
+  the grace period. Every caller shares the mounted talosconfig credentials. There is no per-request credential
   passthrough because Talos auth is mTLS. In v1, access to the HTTP endpoint
   has to be controlled at the network or ingress level. Per-user
   authentication through a third-party OIDC provider is designed in

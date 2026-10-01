@@ -26,6 +26,7 @@ COPY --from=gcr.io/distroless/static-debian13:nonroot . .
 ARG TARGETARCH
 COPY --from=builder /src/bin/talos-mcp-${TARGETARCH} /bin/talos-mcp
 
+ENV LISTEN=0.0.0.0
 ENTRYPOINT ["/bin/talos-mcp"]
 
 ########################################
@@ -36,4 +37,5 @@ COPY --from=gcr.io/distroless/static-debian13:nonroot . .
 ARG TARGETPLATFORM
 COPY ${TARGETPLATFORM}/talos-mcp /bin/talos-mcp
 
+ENV LISTEN=0.0.0.0
 ENTRYPOINT ["/bin/talos-mcp"]

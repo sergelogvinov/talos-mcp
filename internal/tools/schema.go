@@ -19,13 +19,19 @@ package tools
 import (
 	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// nullType is the JSON Schema type of null.
+const nullType = "null"
+
 // addTool registers a tool like mcp.AddTool, but first infers any schema the
-// tool does not set and rewrites both schemas with singleTypes.
+// tool does not set and rewrites both schemas with singleTypes. Output keeps
+// a null branch, because a nil slice is serialized as null. Input does not:
+// a client leaves an optional field out instead of sending null.
 func addTool[In, Out any](srv *mcp.Server, tool *mcp.Tool, h mcp.ToolHandlerFor[In, Out]) {
 	if tool.InputSchema == nil {
 		tool.InputSchema = inferSchema[In](tool.Name, "input")
@@ -35,16 +41,21 @@ func addTool[In, Out any](srv *mcp.Server, tool *mcp.Tool, h mcp.ToolHandlerFor[
 		tool.OutputSchema = inferSchema[Out](tool.Name, "output")
 	}
 
-	for _, s := range []any{tool.InputSchema, tool.OutputSchema} {
-		if schema, ok := s.(*jsonschema.Schema); ok {
-			singleTypes(schema)
-		}
+	if schema, ok := tool.InputSchema.(*jsonschema.Schema); ok {
+		singleTypes(schema, false)
+	}
+
+	if schema, ok := tool.OutputSchema.(*jsonschema.Schema); ok {
+		singleTypes(schema, true)
 	}
 
 	mcp.AddTool(srv, tool, h)
 }
 
-// inferSchema builds the schema of T the way mcp.AddTool does.
+// inferSchema builds the schema of T the way mcp.AddTool does in go-sdk
+// v1.8.0 (setSchema in mcp/server.go): a pointer type is unwrapped, then the
+// schema is inferred with the default options. Check it still matches when
+// upgrading go-sdk. TestToolSchemas covers the result, not the match.
 func inferSchema[T any](tool, kind string) *jsonschema.Schema {
 	rt := reflect.TypeFor[T]()
 	if rt.Kind() == reflect.Pointer {
@@ -66,16 +77,33 @@ func inferSchema[T any](tool, kind string) *jsonschema.Schema {
 // list form or drop the constraint.
 //
 // The annotations stay on the outer schema. Each non-null branch keeps the
-// type-specific keywords, such as items or properties.
-func singleTypes(s *jsonschema.Schema) {
+// type-specific keywords, such as items or properties. Without keepNull the
+// null type is dropped, and a single remaining type is set directly, with no
+// anyOf.
+func singleTypes(s *jsonschema.Schema, keepNull bool) {
 	if s == nil {
 		return
 	}
 
-	forEachChild(s, singleTypes)
+	forEachChild(s, func(c *jsonschema.Schema) { singleTypes(c, keepNull) })
 
 	if len(s.Types) == 0 {
 		return
+	}
+
+	if !keepNull {
+		s.Types = slices.DeleteFunc(slices.Clone(s.Types), func(t string) bool { return t == nullType })
+
+		switch len(s.Types) {
+		case 0:
+			s.Types = nil
+
+			return
+		case 1:
+			s.Type, s.Types = s.Types[0], nil
+
+			return
+		}
 	}
 
 	outer := &jsonschema.Schema{
@@ -90,8 +118,8 @@ func singleTypes(s *jsonschema.Schema) {
 	}
 
 	for _, typ := range s.Types {
-		if typ == "null" {
-			outer.AnyOf = append(outer.AnyOf, &jsonschema.Schema{Type: "null"})
+		if typ == nullType {
+			outer.AnyOf = append(outer.AnyOf, &jsonschema.Schema{Type: nullType})
 
 			continue
 		}

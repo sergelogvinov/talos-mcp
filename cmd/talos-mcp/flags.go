@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
@@ -33,6 +34,8 @@ const (
 	flagLogLevel         = "log-level"
 	flagLogFormat        = "log-format"
 	flagPort             = "port"
+	flagListen           = "listen"
+	flagNoHostCheck      = "disable-localhost-protection"
 
 	envTalosConfig      = "TALOSCONFIG"
 	envContext          = "TALOS_CONTEXT"
@@ -41,6 +44,8 @@ const (
 	envLogLevel         = "LOG_LEVEL"
 	envLogFormat        = "LOG_FORMAT"
 	envPort             = "PORT"
+	envListen           = "LISTEN"
+	envNoHostCheck      = "DISABLE_LOCALHOST_PROTECTION"
 )
 
 const (
@@ -49,6 +54,7 @@ const (
 	defaultLogLevel         = "info"
 	defaultLogFormat        = "text"
 	defaultPort             = 8080
+	defaultListen           = "127.0.0.1"
 	defaultOutputFormat     = "text"
 )
 
@@ -61,12 +67,20 @@ type Flags struct {
 	LogLevel         string
 	LogFormat        string
 	Port             int
+	Listen           string
+	NoHostCheck      bool
 	Output           string
+
+	// portErr is set when PORT is not a number. Only the server uses the
+	// port, so it reports the error unless --port is given.
+	portErr error
 }
 
 // DefaultFlags returns the default flags for the command,
 // populated from environment variables where applicable.
 func DefaultFlags() *Flags {
+	port, portErr := envInt(envPort, defaultPort)
+
 	return &Flags{
 		TalosConfig:      withDefaultEnv(envTalosConfig, ""),
 		Context:          withDefaultEnv(envContext, ""),
@@ -74,8 +88,11 @@ func DefaultFlags() *Flags {
 		AllowDestructive: withDefaultEnvBool(envAllowDestructive, defaultAllowDestructive),
 		LogLevel:         withDefaultEnv(envLogLevel, defaultLogLevel),
 		LogFormat:        withDefaultEnv(envLogFormat, defaultLogFormat),
-		Port:             withDefaultEnvInt(envPort, defaultPort),
+		Port:             port,
+		Listen:           withDefaultEnv(envListen, defaultListen),
+		NoHostCheck:      withDefaultEnvBool(envNoHostCheck, false),
 		Output:           defaultOutputFormat,
+		portErr:          portErr,
 	}
 }
 
@@ -92,6 +109,9 @@ func (f *Flags) AddPersistentFlags(flags *pflag.FlagSet) {
 // AddServerFlags adds the flags for the "server" subcommand.
 func (f *Flags) AddServerFlags(flags *pflag.FlagSet) {
 	flags.IntVarP(&f.Port, flagPort, "", f.Port, "http listen port")
+	flags.StringVarP(&f.Listen, flagListen, "", f.Listen, "http listen address; use 0.0.0.0 to accept connections from other hosts")
+	flags.BoolVarP(&f.NoHostCheck, flagNoHostCheck, "", f.NoHostCheck,
+		"accept requests on a loopback address with a non-localhost Host header, as sent by a sidecar proxy (disables DNS rebinding protection)")
 }
 
 // AddToolFlags adds the flags for the "tools" subcommand.
@@ -123,6 +143,8 @@ func (f *Flags) Config() (*config.Config, error) {
 		TalosConfig:      path,
 		Context:          f.Context,
 		Port:             f.Port,
+		Listen:           f.Listen,
+		NoHostCheck:      f.NoHostCheck,
 		Extensions:       f.Extensions,
 		AllowDestructive: f.AllowDestructive,
 		LogLevel:         f.LogLevel,
@@ -138,13 +160,21 @@ func withDefaultEnv(key string, def string) string {
 	return def
 }
 
-func withDefaultEnvInt(key string, def int) int {
-	if val, ok := os.LookupEnv(key); ok {
-		if n, err := strconv.Atoi(val); err == nil {
-			return n
-		}
+// envInt returns the environment value as a number, or def when it is unset
+// or empty. A value that is not a number is an error, so a typo does not
+// silently fall back to def.
+func envInt(key string, def int) (int, error) {
+	val, ok := os.LookupEnv(key)
+	if !ok || val == "" {
+		return def, nil
 	}
-	return def
+
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return def, fmt.Errorf("invalid %s %q: must be a number", key, val)
+	}
+
+	return n, nil
 }
 
 func withDefaultEnvBool(key string, def bool) bool {
