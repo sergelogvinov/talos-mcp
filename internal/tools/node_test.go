@@ -76,7 +76,12 @@ func newNodeTools(t *testing.T, fake *talostest.FakeClient, contexts ...talostes
 func numbered(prefix string, n int) string {
 	var b strings.Builder
 	for i := 1; i <= n; i++ {
-		b.WriteString(prefix + " " + strings.Repeat("x", i%3) + " line " + strconv.Itoa(i) + "\n")
+		b.WriteString(prefix)
+		b.WriteString(" ")
+		b.WriteString(strings.Repeat("x", i%3))
+		b.WriteString(" line ")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteString("\n")
 	}
 
 	return b.String()

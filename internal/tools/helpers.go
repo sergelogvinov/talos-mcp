@@ -303,7 +303,8 @@ func linesHeader(what, cluster, node string, count int, truncated bool, warnings
 	}
 
 	for _, w := range warnings {
-		b.WriteString("\nwarning: " + w)
+		b.WriteString("\nwarning: ")
+		b.WriteString(w)
 	}
 
 	return b.String()

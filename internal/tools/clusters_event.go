@@ -554,7 +554,8 @@ func eventsText(r *ClustersEventResult) string {
 	}
 
 	for _, w := range r.Warnings {
-		b.WriteString("\nwarning: " + w)
+		b.WriteString("\nwarning: ")
+		b.WriteString(w)
 	}
 
 	if len(r.Events) == 0 {
