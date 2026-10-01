@@ -92,17 +92,26 @@ talosconfig path resolution, first match wins:
 2. `TALOSCONFIG` environment variable
 3. `$HOME/.talos/config` (the `talosctl` default)
 
-The file is loaded with `clientconfig.Open` from
-`github.com/siderolabs/talos/pkg/machinery/client/config`.
+The server reads the file with `os.ReadFile` and parses it with
+`clientconfig.FromBytes` from
+`github.com/siderolabs/talos/pkg/machinery/client/config`. It does not use
+`clientconfig.Open`, because `Open` creates the file when it is missing.
 
 Startup validation:
 
-- The file must parse and contain at least one context.
-- Each context must have at least one endpoint and `ca`/`crt`/`key`.
+- The file must parse and contain at least one usable context, or startup
+  fails.
+- Each context must have at least one endpoint and `ca`/`crt`/`key`. A context
+  that doesn't is **skipped with a warning**, so one stale context in a
+  developer's talosconfig doesn't stop the server.
 - Contexts that use `auth.siderov1` (Omni) are **skipped with a warning** in
   v1. Omni auth needs interactive key signing (see §13).
 - `--context` (optional) limits the server to a single context. This is useful
-  when the server should only ever see one cluster.
+  when the server should only ever see one cluster. An unknown or unusable
+  `--context` is a startup error, not a warning.
+- The current context is `--context` when set, else the talosconfig's
+  `context:`. If that one is missing or was skipped, the first usable context
+  by name is used, with a warning.
 
 ### 2.2 Discovery service
 
@@ -144,12 +153,11 @@ You can find `cluster_id` and `cluster_secret` in the machine config
 
 Parsing:
 
-- `clientconfig.Open` doesn't know about the `discovery` key. The server reads
-  the same file a second time with a small YAML struct
+- `clientconfig` doesn't know about the `discovery` key. Its YAML decoder is
+  not strict, so it ignores the key (checked in `pkg/machinery` v1.14.2, and
+  covered by a test). The server decodes the same bytes a second time with a
+  small YAML struct
   (`contexts: map[string]struct{ Discovery *DiscoveryConfig }`) to pick it up.
-  To verify: `clientconfig` must load unknown keys without a strict-mode
-  error. If it doesn't, the server strips `discovery` before passing the bytes
-  to `clientconfig.FromBytes`.
 - Validation: if `discovery` is present, `cluster_id` and `cluster_secret` are
   required, and the secret must base64-decode to a valid AES key. A bad block
   disables discovery for that context with a warning. It does not disable the
@@ -208,7 +216,12 @@ call:
   admin credentials the operator tool set and logs a warning recommending a
   dedicated `os:operator` or `os:reader` credential. This matters most in
   `server` mode, where the credential is shared.
-- The certificate is also checked for expiry (§11).
+- A context whose `crt` can't be parsed is skipped with a warning, the same
+  as one with no known role. If it was the current context, the first
+  remaining context becomes current. With `--context`, either case is a
+  startup error.
+- The certificate is also checked for expiry (§11). An expired certificate
+  only produces a warning; the context stays, and its calls fail in apid.
 
 Each tool declares the minimum role it needs:
 
@@ -378,24 +391,30 @@ Use only `pkg/machinery`, which is a separate Go module, and never the full
 
 ```go
 type Pool struct {
-    cfg      *clientconfig.Config
-    contexts []string                 // sorted, after --context filter & validation
-    current  string                   // default context
+    cfg       *clientconfig.Config
+    contexts  []string                    // sorted, after --context filter & validation
+    current   string                      // default context
+    creds     map[string]*Credential      // per context, from the certificate (§2.3)
+    discovery map[string]*config.DiscoveryConfig // per context, absent when not configured
+    warnings  []string                    // startup warnings, logged by the caller
 
-    roles     map[string]Role             // per context, from the certificate (§2.3)
-    discovery map[string]*DiscoveryConfig // per context, nil when not configured
+    newClient ClientFactory               // client.New by default, a fake in tests
 
-    mu       sync.Mutex
-    clients  map[string]*client.Client // lazily created, one per context
+    mu         sync.Mutex
+    clients    map[string]Client           // lazily created, one per context
     affiliates map[string]cachedAffiliates // discovery service results, 30s TTL
 }
 
-func NewPool(cfg *config.Config) (*Pool, error)
+func LoadPool(cfg *config.Config, opts ...Option) (*Pool, error)     // LoadTalosConfig + NewPool
+func NewPool(tc *config.TalosConfig, opts ...Option) (*Pool, error)  // runs CheckCredentials (§2.3)
+func (p *Pool) Warnings() []string
 func (p *Pool) List() []string
 func (p *Pool) Current() string
 func (p *Pool) Resolve(cluster string) (string, error)              // "" → current; unknown → error listing valid names
-func (p *Pool) Client(ctx context.Context, cluster string) (*client.Client, error)
+func (p *Pool) Client(ctx context.Context, cluster string) (Client, error) // small interface (§14), fake in tests
 func (p *Pool) ContextInfo(cluster string) (endpoints, nodes []string, err error)
+func (p *Pool) Credential(cluster string) *Credential               // role, admin flag, NotAfter (cert_expires)
+func (p *Pool) Discovery(cluster string) *config.DiscoveryConfig    // nil without a discovery block
 func (p *Pool) Members(ctx context.Context, cluster string) ([]Member, MemberSource, error) // apid only, §6.1 order
 func (p *Pool) Affiliates(ctx context.Context, cluster string) ([]Affiliate, error)         // discovery service, §8.4 only
 func (p *Pool) Role(cluster string) Role                              // reader | operator
@@ -407,6 +426,9 @@ func (p *Pool) Close() error
 
 - Clients are created lazily on first use with
   `client.New(ctx, client.WithConfig(cfg), client.WithContextName(name))`.
+  `client.New` doesn't dial (it uses `grpc.NewClient`), so creating a client
+  never blocks on an unreachable endpoint. `Client` is an interface: the
+  real client is wrapped so COSI state is reachable as `State()`.
   They are cached for the server's lifetime and closed on shutdown. gRPC
   reconnects on its own, so a dead endpoint doesn't poison the cache.
 - If client creation fails, nothing is cached, so the next call retries.
@@ -457,6 +479,7 @@ type TalosTools struct {
     pool             *talos.Pool
     allowDestructive bool
     extensions       map[string]bool
+    registered       []toolSpec // name, min role, needs discovery; filled by Register*
 }
 
 func (t *TalosTools) RegisterTools(srv *mcp.Server) {
@@ -522,7 +545,7 @@ type ClusterSummary struct {
     Endpoints []string `json:"endpoints" jsonschema:"Talos API endpoints"`
     Nodes     []string `json:"nodes,omitempty" jsonschema:"Default target nodes"`
     Current   bool     `json:"current" jsonschema:"Whether this is the default cluster"`
-    CertExpires string `json:"cert_expires,omitempty" jsonschema:"Client certificate expiry (RFC3339)"`
+    CertExpires string `json:"cert_expires,omitempty" jsonschema:"Client certificate expiry (RFC3339), set when it is expired or expires within 7 days"`
     Discovery   string `json:"discovery,omitempty" jsonschema:"Discovery service endpoint, when configured"`
     Role        string `json:"role" jsonschema:"Credential role: reader or operator (§2.3)"`
     Tools       []string `json:"tools" jsonschema:"Tools usable on this cluster with its credential"`
@@ -530,8 +553,11 @@ type ClusterSummary struct {
 ```
 
 `talos_clusters_list` stays offline. It only reports whether discovery is
-configured and doesn't contact the discovery service. `Tools` includes
-`talos_clusters_members` only for clusters with discovery keys. Node lists
+configured and doesn't contact the discovery service. `Tools` is computed
+from the tools that were actually registered: each `Register*` records its
+minimum role and whether it needs discovery keys, so `Tools` includes
+`talos_clusters_members` only for clusters with discovery keys, and never a
+tool that `--extensions` or `--allow-destructive` left out. Node lists
 come from `talos_clusters_describe` (apid) and, where configured,
 `talos_clusters_members` (discovery).
 
@@ -981,9 +1007,9 @@ These items are marked "to verify" above. Each one changes code in a later
 step, so check them against the pinned `pkg/machinery` version before
 starting:
 
-1. **Unknown keys in talosconfig (§2.2).** Load a talosconfig that has a
-   `discovery` block with `clientconfig.FromBytes`. If it fails in strict
-   mode, the loader strips `discovery` before parsing.
+1. **Unknown keys in talosconfig (§2.2).** Settled in step 3:
+   `clientconfig.FromBytes` ignores the `discovery` key in `pkg/machinery`
+   v1.14.2, so nothing is stripped.
 2. **Min roles (§2.3).** Already checked against Talos `main`: `Logs`,
    `Dmesg` and the other read APIs allow `os:reader`. Check the same rules
    file again in the pinned release, and add a test that fails when a read
@@ -1019,8 +1045,8 @@ starting:
   persistent flags on the root command.
 - The `Config` struct (§2.4) and talosconfig path resolution: flag, then
   `TALOSCONFIG`, then `~/.talos/config`.
-- Load with `clientconfig.Open`, then parse the file a second time for the
-  `discovery` block (§2.2), using the result of §15.1 item 1.
+- Read the file and parse it with `clientconfig.FromBytes`, then decode the
+  same bytes a second time for the `discovery` block (§2.2).
 - Validation from §2.1 and §2.2: at least one context, endpoints and
   `ca`/`crt`/`key` present, Omni contexts skipped with a warning, the
   `--context` filter, and a bad `discovery` block disabling discovery only.

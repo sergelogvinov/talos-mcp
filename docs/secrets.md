@@ -107,7 +107,7 @@ pass through the client or the model's context.
 
 ## 5. Lifecycle
 
-1. **Load.** `clientconfig.Open` parses the talosconfig. Encrypted `key`
+1. **Load.** `clientconfig.FromBytes` parses the talosconfig. Encrypted `key`
    values are just opaque base64 to it. The discovery block is read as
    described in design §2.2.
 2. **Classify.** For each context, the server reads the role from `crt`
