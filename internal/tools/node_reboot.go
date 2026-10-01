@@ -73,7 +73,7 @@ func (t *TalosTools) RegisterNodeReboot(srv *mcp.Server) {
 	schema.Properties["mode"].Enum = toAny([]string{"", rebootModeDefault, rebootModePowercycle})
 	schema.Required = []string{"cluster", "node"}
 
-	mcp.AddTool(srv,
+	addTool(srv,
 		&mcp.Tool{
 			Name: ToolNodeReboot,
 			Description: "Reboot one Talos node and return once Talos accepts the request; it does not wait for the node. " +

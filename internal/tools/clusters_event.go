@@ -79,7 +79,7 @@ var xidEncoding = base32.NewEncoding("0123456789abcdefghijklmnopqrstuv").WithPad
 
 // RegisterClustersEvent registers the cluster events tool.
 func (t *TalosTools) RegisterClustersEvent(srv *mcp.Server) {
-	mcp.AddTool(srv,
+	addTool(srv,
 		&mcp.Tool{
 			Name: ToolClustersEvent,
 			Description: "Return recent Talos runtime events of all nodes of a cluster, or of one node, newest first: " +

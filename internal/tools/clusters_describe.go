@@ -60,7 +60,7 @@ type clustersDescribeInput struct {
 
 // RegisterClustersDescribe registers the cluster describe tool.
 func (t *TalosTools) RegisterClustersDescribe(srv *mcp.Server) {
-	mcp.AddTool(srv,
+	addTool(srv,
 		&mcp.Tool{
 			Name: ToolClustersDescribe,
 			Description: "Describe a Talos cluster through the Talos API: every node with its role, Talos and kubelet " +

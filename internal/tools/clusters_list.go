@@ -29,7 +29,7 @@ const ToolClustersList = "talos_clusters_list"
 
 // RegisterClustersList registers the clusters list tool.
 func (t *TalosTools) RegisterClustersList(srv *mcp.Server) {
-	mcp.AddTool(srv,
+	addTool(srv,
 		&mcp.Tool{
 			Name: ToolClustersList,
 			Description: "List the Talos clusters (talosconfig contexts) configured in the MCP server, " +

@@ -532,6 +532,15 @@ Input structs use `json` and `jsonschema` tags, and the SDK generates the input
 schema from them. Output structs are exported from `internal/tools` so the SDK
 can generate output schemas.
 
+Tools are registered with `addTool` (`schema.go`) instead of `mcp.AddTool`. It
+infers both schemas the same way, then rewrites every `type` list into `anyOf`
+branches with one `type` each. jsonschema-go infers slices and pointers as
+`"type": ["null", "array"]`. That is valid JSON Schema, but clients that map
+tool schemas onto a single-`type` dialect, such as Gemini function
+declarations, reject the tool or drop the constraint. The `null` branch stays,
+because a nil slice is serialized as `null`. `TestToolSchemas` fails on any
+`type` list.
+
 Annotations:
 
 | Tool                      | ReadOnly | Destructive | Idempotent | OpenWorld |
@@ -1051,12 +1060,17 @@ cluster, so the tool is simply present or absent.
   gRPC/TLS to the discovery endpoint (`discovery.talos.dev:443` by default).
   The Helm chart's optional NetworkPolicy allows that endpoint alongside the
   Talos endpoints.
-- **Streamable HTTP (`server`)** serves `/mcp` and `/healthz`, with graceful
-  shutdown, the same as in proxmox-mcp. Every caller shares the mounted
-  talosconfig credentials. There is no per-request credential passthrough
-  because Talos auth is mTLS. In v1, access to the HTTP endpoint has to be
-  controlled at the network or ingress level. Per-user authentication through
-  a third-party OIDC provider is designed in [`oidc.md`](oidc.md).
+- **Streamable HTTP (`server`)** serves `/mcp` and `/healthz` on `:<port>`,
+  the same as in proxmox-mcp. Sessions with no request for an hour are
+  closed. On SIGINT/SIGTERM the server stops accepting connections and ends
+  standing SSE streams (GET) at once, because they never finish on their
+  own. Tool calls in flight get 5s to finish before their connections are
+  closed. A signal does not cancel a call before that. Every caller shares
+  the mounted talosconfig credentials. There is no per-request credential
+  passthrough because Talos auth is mTLS. In v1, access to the HTTP endpoint
+  has to be controlled at the network or ingress level. Per-user
+  authentication through a third-party OIDC provider is designed in
+  [`oidc.md`](oidc.md).
 - **Helm chart (`charts/talos-mcp`)** mounts talosconfig from a Secret at
   `/etc/talos/config` and sets `TALOSCONFIG`. `allowDestructive: false` is the
   default value.

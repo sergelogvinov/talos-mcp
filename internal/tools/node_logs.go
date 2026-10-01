@@ -44,7 +44,7 @@ type NodeLogsInput struct {
 
 // RegisterNodeLogs registers the node logs tool.
 func (t *TalosTools) RegisterNodeLogs(srv *mcp.Server) {
-	mcp.AddTool(srv,
+	addTool(srv,
 		&mcp.Tool{
 			Name: ToolNodeLogs,
 			Description: "Return the last lines of a Talos service's logs on one node (kubelet, etcd, apid, machined, containerd, ...), " +

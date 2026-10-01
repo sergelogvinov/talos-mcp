@@ -45,7 +45,7 @@ var kmsgLine = regexp.MustCompile(`^\s*([^:\s]+):\s*([^:\s]+):\s*\[([^\]]+)\]:\s
 
 // RegisterNodeDmesg registers the node dmesg tool.
 func (t *TalosTools) RegisterNodeDmesg(srv *mcp.Server) {
-	mcp.AddTool(srv,
+	addTool(srv,
 		&mcp.Tool{
 			Name:        ToolNodeDmesg,
 			Description: "Return the last lines of the kernel log (dmesg) of one node. Secrets in the output are masked.",

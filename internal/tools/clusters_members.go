@@ -57,7 +57,7 @@ func (t *TalosTools) RegisterClustersMembers(srv *mcp.Server) {
 		schema.Required = append(schema.Required, "cluster")
 	}
 
-	mcp.AddTool(srv,
+	addTool(srv,
 		&mcp.Tool{
 			Name: ToolClustersMembers,
 			Description: "List the members of a Talos cluster as the discovery service sees them: node ID, hostname, role, " +

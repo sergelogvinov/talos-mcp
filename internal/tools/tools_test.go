@@ -18,6 +18,7 @@ package tools_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -107,6 +108,10 @@ func TestToolSchemas(t *testing.T) {
 				data, err := json.Marshal(schema)
 				require.NoError(t, err)
 
+				var raw any
+				require.NoError(t, json.Unmarshal(data, &raw))
+				assert.Empty(t, typeLists(raw, kind), "a nullable field uses anyOf branches, not a `type` list")
+
 				var s jsonschema.Schema
 				require.NoError(t, json.Unmarshal(data, &s), "%s schema", kind)
 				assert.Equal(t, "object", s.Type, "%s schema", kind)
@@ -116,6 +121,29 @@ func TestToolSchemas(t *testing.T) {
 			}
 		})
 	}
+}
+
+// typeLists returns the paths of the schemas in node whose `type` is a list,
+// such as ["null","array"].
+func typeLists(node any, path string) []string {
+	var found []string
+
+	switch n := node.(type) {
+	case map[string]any:
+		if _, ok := n["type"].([]any); ok {
+			found = append(found, path)
+		}
+
+		for k, v := range n {
+			found = append(found, typeLists(v, path+"/"+k)...)
+		}
+	case []any:
+		for i, v := range n {
+			found = append(found, typeLists(v, fmt.Sprintf("%s/%d", path, i))...)
+		}
+	}
+
+	return found
 }
 
 func TestRegisterToolsExtensions(t *testing.T) {

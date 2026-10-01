@@ -77,6 +77,7 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(
 		newMCPCmd(flags),
+		newServerCmd(flags),
 		newToolsCmd(flags),
 		newVersionCmd(),
 	)
