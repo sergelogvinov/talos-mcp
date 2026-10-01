@@ -142,7 +142,7 @@ contexts:
     crt: LS0t...
     key: LS0t...
     discovery:
-      endpoint: discovery.talos.dev:443   # optional, this is the default
+      endpoint: discovery.talos.dev:443   # optional, this is the default; https://host/ and http://host:port also work
       cluster_id: 3x9y...                 # machine config cluster.id
       cluster_secret: c2VjcmV0...         # machine config cluster.secret (base64, 32 bytes)
 ```
@@ -159,7 +159,12 @@ Parsing:
   small YAML struct
   (`contexts: map[string]struct{ Discovery *DiscoveryConfig }`) to pick it up.
 - Validation: if `discovery` is present, `cluster_id` and `cluster_secret` are
-  required, and the secret must base64-decode to a valid AES key. A bad block
+  required, and the secret must base64-decode to a valid AES key. `endpoint`
+  accepts `host`, `host:port`, or a URL in the machine-config form
+  (`https://discovery.talos.dev/`), and is normalized to `host:port` (443 by
+  default). An `http://` URL selects plain gRPC without TLS, for self-hosted
+  services; other schemes and URL paths are rejected. A private CA is not
+  supported in v1. A bad block
   disables discovery for that context with a warning. It does not disable the
   context.
 - Caveat: `talosctl config merge`, `config context` and similar commands
@@ -174,9 +179,17 @@ How the server uses it (`internal/talos/discovery.go`):
   the cluster ID, then decrypts each affiliate's data with AES-GCM keyed by
   the cluster secret and unmarshals it into the affiliate proto. The server
   **never calls `Hello`, `AffiliateUpdate` or `Watch`**, and it never
-  registers itself as an affiliate. The same cipher scheme as
-  `github.com/siderolabs/discovery-client` is reused; the implementation should
-  borrow its cipher helper instead of re-deriving it.
+  registers itself as an affiliate. The cipher scheme is the one in
+  `github.com/siderolabs/discovery-client` (`pkg/client`, `parseReply`):
+  affiliate data is AES-GCM with a random 12-byte nonce prefix, and each
+  endpoint record is AES-ECB over `[len][proto][zero padding]`. That code is
+  not exported and `discovery-client` is MPL-2.0, so the derived part lives
+  in its own file, `discovery_cipher.go`, under the MPL-2.0 header with
+  attribution (MPL is per-file; the rest of the package stays Apache-2.0).
+- The connection uses TLS with the system roots, like Talos nodes do.
+- Each cluster has its own cache entry and lock, so a slow discovery service
+  for one cluster never delays another, and a caller waiting on the lock
+  gives up when its context ends. The cached list is copied for each caller.
 - Results are cached per context for 30s, so a burst of tool calls doesn't
   hit the service repeatedly.
 
@@ -415,8 +428,9 @@ func (p *Pool) Client(ctx context.Context, cluster string) (Client, error) // sm
 func (p *Pool) ContextInfo(cluster string) (endpoints, nodes []string, err error)
 func (p *Pool) Credential(cluster string) *Credential               // role, admin flag, NotAfter (cert_expires)
 func (p *Pool) Discovery(cluster string) *config.DiscoveryConfig    // nil without a discovery block
-func (p *Pool) Members(ctx context.Context, cluster string) ([]Member, MemberSource, error) // apid only, §6.1 order
-func (p *Pool) Affiliates(ctx context.Context, cluster string) ([]Affiliate, error)         // discovery service, §8.4 only
+func (p *Pool) Members(ctx context.Context, cluster string) (*MemberList, error)   // apid only, §6.1 order; members, source, warnings
+func (p *Pool) ResolveNode(ctx context.Context, cluster, node string) (*ResolvedNode, error) // §6.1: IP, hostname, empty → default node
+func (p *Pool) Affiliates(ctx context.Context, cluster string) (*AffiliateList, error) // discovery service, §8.4 only
 func (p *Pool) Role(cluster string) Role                              // reader | operator
 func (p *Pool) ClustersWithRole(min Role) []string                    // sorted; drives tool registration
 func (p *Pool) ClustersWithDiscovery() []string                       // sorted; drives talos_clusters_members registration
@@ -463,10 +477,19 @@ that was used goes back to the tool as `MemberSource` (`members` or
 list. If source 1 fails, the pool uses source 2 and adds a warning. It does
 not fail the call.
 
-Choosing the target address from a member's address list: take the first
-address that isn't link-local and isn't in the KubeSpan ULA prefix, and prefer
-the same IP family as the context endpoints. Hostname matching is
-case-insensitive.
+Choosing the target address from a member's address list: never a
+link-local address; prefer the same IP family as the context endpoints (DNS
+endpoints count as IPv4), then any other address; an address that looks like
+a KubeSpan or SideroLink ULA (`network.IsULA` from `pkg/machinery`) is the
+last resort. `IsULA` only checks two bytes, so an ordinary site ULA subnet
+can look like KubeSpan; such a node stays reachable that way.
+
+Matching is case-insensitive against the hostname, the Kubernetes node name
+(the Members resource ID), the node ID and, for the talosconfig source, the
+configured address or DNS name. A `:port` suffix and IPv6 brackets in `node`
+are ignored. Several matches are an "ambiguous node" error that lists each
+match with its node ID and addresses. When the list came from the
+talosconfig fallback, "unknown node" errors say why apid was not used.
 
 ## 7. Tool Registration & Structured Output
 
@@ -678,11 +701,12 @@ The tool exists only where discovery keys exist:
   `tools/list` doesn't return it.
 - The `cluster` property in its input schema is an `enum` of the clusters
   with discovery, and the description lists them ("Available on: prod-eu").
-  `cluster` is optional only when the current context has discovery;
-  otherwise it is required.
+  `cluster` is optional only when the current context has discovery, and
+  then the enum also allows `""` (the current cluster); otherwise it is
+  required. `role` allows `""` (all roles) next to the two types.
 - A call for a cluster without discovery keys is rejected before any network
-  call, with a message listing the clusters that have them. There is no
-  fallback to apid.
+  call, with a message listing the clusters that have them. The check lives
+  in `Pool.Affiliates` (`ErrNoDiscovery`). There is no fallback to apid.
 
 ```go
 type clustersMembersInput struct {
@@ -706,8 +730,8 @@ type MemberSummary struct {
     Role            string        `json:"role" jsonschema:"controlplane or worker"`
     OperatingSystem string        `json:"operating_system,omitempty" jsonschema:"e.g. Talos (v1.11.2)"`
     Addresses       []string      `json:"addresses" jsonschema:"Node addresses reported by the node"`
-    Endpoints       []string      `json:"endpoints,omitempty" jsonschema:"Public endpoints observed by the discovery service"`
-    APIServerPort   int           `json:"apiserver_port,omitempty" jsonschema:"kube-apiserver port (control plane only)"`
+    Endpoints       []string      `json:"endpoints,omitempty" jsonschema:"KubeSpan WireGuard endpoints (ip:port) stored with the affiliate"`
+    APIServerPort   *int          `json:"apiserver_port,omitempty" jsonschema:"kube-apiserver port (control plane only)"`
     KubeSpan        *KubeSpanInfo `json:"kubespan,omitempty" jsonschema:"KubeSpan peer data, when KubeSpan is enabled"`
 }
 
@@ -715,7 +739,6 @@ type KubeSpanInfo struct {
     Address             string   `json:"address" jsonschema:"KubeSpan (WireGuard) address"`
     PublicKey           string   `json:"public_key" jsonschema:"WireGuard public key"`
     AdditionalAddresses []string `json:"additional_addresses,omitempty" jsonschema:"Routed prefixes"`
-    Endpoints           []string `json:"endpoints,omitempty" jsonschema:"WireGuard endpoints"`
 }
 ```
 
@@ -727,7 +750,8 @@ Implementation:
 - KubeSpan-only affiliates (no `machine_type` or no addresses) are kept and
   shown with `role: ""`, because the point of the tool is to show the raw
   discovery view, which also helps when debugging KubeSpan.
-- Members are sorted by role (controlplane first), then hostname.
+- Members are sorted by role (controlplane first), then hostname, once in
+  `Pool.Affiliates`, using the same order as `Pool.Members`.
 - Records that fail to decrypt are counted and reported in a single warning,
   for example "3 affiliates could not be decrypted (wrong cluster_secret, or
   another cluster sharing the ID?)".
@@ -1014,10 +1038,10 @@ starting:
    `Dmesg` and the other read APIs allow `os:reader`. Check the same rules
    file again in the pinned release, and add a test that fails when a read
    tool's API is not in the reader set.
-3. **Discovery cipher helper (§2.2).** Find the AES-GCM helper in
-   `github.com/siderolabs/discovery-client` and check that it can be
-   imported without pulling in the whole client. If it can't, copy it with
-   attribution.
+3. **Discovery cipher helper (§2.2).** Settled in step 7: the decryption
+   is inline in the unexported `parseReply` of `discovery-client` v0.1.15,
+   so it is copied with attribution. Only `discovery-api` v0.1.8 is a
+   dependency.
 
 ### 15.2 Steps
 

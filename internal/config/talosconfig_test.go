@@ -412,3 +412,59 @@ func TestTalosConfigRemoveFilteredContext(t *testing.T) {
 	require.EqualError(t, tc.Remove("staging", "no known role"), `context "staging": no known role`)
 	assert.Equal(t, []string{"staging"}, tc.Contexts())
 }
+
+func TestParseTalosConfigDiscoveryEndpoint(t *testing.T) {
+	for _, tt := range []struct {
+		endpoint         string
+		expected         string
+		expectedInsecure bool
+		expectedWarning  string
+	}{
+		{endpoint: "", expected: "discovery.talos.dev:443"},
+		{endpoint: "discovery.talos.dev", expected: "discovery.talos.dev:443"},
+		{endpoint: "discovery.example.com:3000", expected: "discovery.example.com:3000"},
+		{endpoint: "https://discovery.talos.dev/", expected: "discovery.talos.dev:443"},
+		{endpoint: "https://discovery.example.com:8443", expected: "discovery.example.com:8443"},
+		{endpoint: "http://10.0.0.5:3000", expected: "10.0.0.5:3000", expectedInsecure: true},
+		{endpoint: "http://discovery.local", expected: "discovery.local:80", expectedInsecure: true},
+		{endpoint: "[2001:db8::5]:3000", expected: "[2001:db8::5]:3000"},
+		{endpoint: "[2001:db8::5]", expected: "[2001:db8::5]:443"},
+		{
+			endpoint:        "ftp://discovery.example.com",
+			expectedWarning: `context "prod": discovery disabled: invalid discovery block: endpoint "ftp://discovery.example.com": unsupported scheme "ftp", use https:// or host:port`,
+		},
+		{
+			endpoint:        "https://discovery.example.com/v1",
+			expectedWarning: `context "prod": discovery disabled: invalid discovery block: endpoint "https://discovery.example.com/v1": a path is not supported`,
+		},
+	} {
+		t.Run(tt.endpoint, func(t *testing.T) {
+			input := `
+context: prod
+contexts:
+  prod:
+    endpoints: [10.0.0.10]
+    ca: Y2E=
+    crt: Y3J0
+    key: a2V5
+    discovery:
+      endpoint: "` + tt.endpoint + `"
+      cluster_id: cluster-1
+      cluster_secret: ` + validSecret + "\n"
+
+			tc, err := config.ParseTalosConfig([]byte(input), "")
+			require.NoError(t, err)
+
+			if tt.expectedWarning != "" {
+				assert.Empty(t, tc.Discovery)
+				assert.Equal(t, []string{tt.expectedWarning}, tc.Warnings)
+
+				return
+			}
+
+			require.Contains(t, tc.Discovery, "prod")
+			assert.Equal(t, tt.expected, tc.Discovery["prod"].Endpoint)
+			assert.Equal(t, tt.expectedInsecure, tc.Discovery["prod"].Insecure)
+		})
+	}
+}

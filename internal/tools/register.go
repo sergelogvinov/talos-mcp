@@ -58,6 +58,11 @@ func NewTalosTools(pool *talos.Pool, allowDestructive bool, extensions map[strin
 func (t *TalosTools) RegisterTools(srv *mcp.Server) {
 	if t.enabled(config.ExtensionCluster) {
 		t.RegisterClustersList(srv)
+
+		// The discovery tool needs at least one cluster with discovery keys (§9).
+		if len(t.pool.ClustersWithDiscovery()) > 0 {
+			t.RegisterClustersMembers(srv)
+		}
 	}
 }
 

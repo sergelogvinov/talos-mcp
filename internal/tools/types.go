@@ -34,3 +34,34 @@ type ClusterSummary struct {
 	Role        string   `json:"role" jsonschema:"Credential role: reader or operator"`
 	Tools       []string `json:"tools" jsonschema:"Tools usable on this cluster with its credential"`
 }
+
+// ClustersMembersResult is the structured output of the talos_clusters_members tool.
+type ClustersMembersResult struct {
+	Cluster   string          `json:"cluster" jsonschema:"Cluster name (talosconfig context)"`
+	ClusterID string          `json:"cluster_id" jsonschema:"Discovery cluster ID"`
+	Endpoint  string          `json:"endpoint" jsonschema:"Discovery service endpoint queried"`
+	Count     int             `json:"count" jsonschema:"Number of members"`
+	Members   []MemberSummary `json:"members" jsonschema:"Members registered with the discovery service"`
+	Warnings  []string        `json:"warnings,omitempty" jsonschema:"Warnings"`
+}
+
+// MemberSummary is one node as registered with the discovery service. The
+// jsonschema text is also the text column header, so it stays short.
+type MemberSummary struct {
+	NodeID          string        `json:"node_id" jsonschema:"Node ID"`
+	Hostname        string        `json:"hostname" jsonschema:"Hostname"`
+	NodeName        string        `json:"nodename,omitempty" jsonschema:"Kubernetes node name"`
+	Role            string        `json:"role" jsonschema:"Role (controlplane, worker; empty for KubeSpan-only)"`
+	OperatingSystem string        `json:"operating_system,omitempty" jsonschema:"OS"`
+	Addresses       []string      `json:"addresses" jsonschema:"Addresses"`
+	Endpoints       []string      `json:"endpoints,omitempty" jsonschema:"KubeSpan endpoints"`
+	APIServerPort   *int          `json:"apiserver_port,omitempty" jsonschema:"API server port"`
+	KubeSpan        *KubeSpanInfo `json:"kubespan,omitempty" jsonschema:"KubeSpan"`
+}
+
+// KubeSpanInfo is the KubeSpan peer data of a member.
+type KubeSpanInfo struct {
+	Address             string   `json:"address" jsonschema:"WireGuard address"`
+	PublicKey           string   `json:"public_key" jsonschema:"WireGuard public key"`
+	AdditionalAddresses []string `json:"additional_addresses,omitempty" jsonschema:"Routed prefixes"`
+}

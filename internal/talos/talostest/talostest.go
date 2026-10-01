@@ -121,10 +121,10 @@ func TalosConfig(t testing.TB, now time.Time, contexts ...Context) string {
 			endpoints = []string{c.Name + ".example.com"}
 		}
 
-		fmt.Fprintf(&b, "  %s:\n    endpoints: [%s]\n", c.Name, strings.Join(endpoints, ", "))
+		fmt.Fprintf(&b, "  %s:\n    endpoints: [%s]\n", c.Name, quoteList(endpoints))
 
 		if len(c.Nodes) > 0 {
-			fmt.Fprintf(&b, "    nodes: [%s]\n", strings.Join(c.Nodes, ", "))
+			fmt.Fprintf(&b, "    nodes: [%s]\n", quoteList(c.Nodes))
 		}
 
 		fmt.Fprintf(&b, "    ca: Y2E=\n    crt: %s\n    key: a2V5\n", crt)
@@ -135,4 +135,15 @@ func TalosConfig(t testing.TB, now time.Time, contexts ...Context) string {
 	}
 
 	return b.String()
+}
+
+// quoteList renders a YAML flow list of quoted strings, so addresses such
+// as "[2001:db8::1]:50000" stay strings.
+func quoteList(items []string) string {
+	quoted := make([]string, 0, len(items))
+	for _, item := range items {
+		quoted = append(quoted, fmt.Sprintf("%q", item))
+	}
+
+	return strings.Join(quoted, ", ")
 }

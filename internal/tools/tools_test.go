@@ -126,8 +126,8 @@ func TestRegisterToolsExtensions(t *testing.T) {
 		extensions map[string]bool
 		expected   []string
 	}{
-		{name: "all", extensions: allExtensions(), expected: []string{tools.ToolClustersList}},
-		{name: "cluster", extensions: map[string]bool{config.ExtensionCluster: true}, expected: []string{tools.ToolClustersList}},
+		{name: "all", extensions: allExtensions(), expected: []string{tools.ToolClustersList, tools.ToolClustersMembers}},
+		{name: "cluster", extensions: map[string]bool{config.ExtensionCluster: true}, expected: []string{tools.ToolClustersList, tools.ToolClustersMembers}},
 		{name: "node", extensions: map[string]bool{config.ExtensionNode: true}, expected: []string{}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -167,7 +167,7 @@ func TestClustersList(t *testing.T) {
 				Current:   true,
 				Discovery: config.DefaultDiscoveryEndpoint,
 				Role:      "reader",
-				Tools:     []string{tools.ToolClustersList},
+				Tools:     []string{tools.ToolClustersList, tools.ToolClustersMembers},
 			},
 			{
 				Name:        "staging",
@@ -189,7 +189,7 @@ func TestClustersListCall(t *testing.T) {
 
 	require.Len(t, res.Content, 1)
 	text := res.Content[0].(*mcp.TextContent).Text
-	assert.Contains(t, text, "Default cluster (current talosconfig context): prod")
+	assert.Contains(t, text, "Default cluster: prod")
 	assert.Contains(t, text, "| dev |")
 
 	data, err := json.Marshal(res.StructuredContent)

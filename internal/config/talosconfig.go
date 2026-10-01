@@ -21,6 +21,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -42,9 +44,15 @@ var (
 
 // DiscoveryConfig is the optional per-context `discovery` block (design §2.2).
 type DiscoveryConfig struct {
+	// Endpoint is host:port after validation. It may be written as host,
+	// host:port, or a URL as in the machine config
+	// (https://discovery.talos.dev/); an http:// URL sets Insecure.
 	Endpoint      string `yaml:"endpoint,omitempty"`
 	ClusterID     string `yaml:"cluster_id"`
 	ClusterSecret string `yaml:"cluster_secret"`
+	// Insecure is set for an http:// endpoint: no TLS, for self-hosted
+	// services only.
+	Insecure bool `yaml:"-"`
 }
 
 // TalosConfig is a loaded and validated talosconfig.
@@ -270,11 +278,60 @@ func (d *DiscoveryConfig) validate() error {
 		return fmt.Errorf("%w: cluster_secret is not a valid AES key (%d bytes)", ErrInvalidDiscovery, len(key))
 	}
 
-	if d.Endpoint == "" {
-		d.Endpoint = DefaultDiscoveryEndpoint
+	endpoint, insecure, err := normalizeDiscoveryEndpoint(d.Endpoint)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidDiscovery, err)
 	}
 
+	d.Endpoint, d.Insecure = endpoint, insecure
+
 	return nil
+}
+
+// normalizeDiscoveryEndpoint turns the endpoint forms accepted in the
+// discovery block into host:port. The default port is 443 for TLS and 80
+// for http://.
+func normalizeDiscoveryEndpoint(endpoint string) (string, bool, error) {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return DefaultDiscoveryEndpoint, false, nil
+	}
+
+	insecure := false
+	port := "443"
+
+	if strings.Contains(endpoint, "://") {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			return "", false, fmt.Errorf("endpoint %q: %v", endpoint, err)
+		}
+
+		switch u.Scheme {
+		case "https", "grpcs":
+		case "http", "grpc":
+			insecure, port = true, "80"
+		default:
+			return "", false, fmt.Errorf("endpoint %q: unsupported scheme %q, use https:// or host:port", endpoint, u.Scheme)
+		}
+
+		if u.Path != "" && u.Path != "/" {
+			return "", false, fmt.Errorf("endpoint %q: a path is not supported", endpoint)
+		}
+
+		endpoint = u.Host
+	}
+
+	host, p, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		// No port: a bare host or a bracketed IPv6 address.
+		host, p = strings.Trim(endpoint, "[]"), port
+	}
+
+	if host == "" {
+		return "", false, fmt.Errorf("endpoint %q: missing host", endpoint)
+	}
+
+	return net.JoinHostPort(host, p), insecure, nil
 }
 
 func sortedKeys[V any](m map[string]V) []string {

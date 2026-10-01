@@ -47,19 +47,25 @@ type Pool struct {
 	discovery map[string]*config.DiscoveryConfig
 	warnings  []string
 
-	newClient ClientFactory
+	newClient     ClientFactory
+	dialDiscovery DiscoveryDialer
+	now           func() time.Time
 
 	mu      sync.Mutex
 	closed  bool
 	clients map[string]Client // lazily created, one per context
+
+	affMu      sync.Mutex
+	affiliates map[string]*affiliateCache // discovery service results, 30s TTL
 }
 
 // Option configures a Pool.
 type Option func(*options)
 
 type options struct {
-	newClient ClientFactory
-	now       func() time.Time
+	newClient     ClientFactory
+	dialDiscovery DiscoveryDialer
+	now           func() time.Time
 }
 
 // WithClientFactory replaces the Talos client constructor, for tests.
@@ -69,7 +75,8 @@ func WithClientFactory(f ClientFactory) Option {
 	}
 }
 
-// WithClock replaces the clock used for certificate expiry checks, for tests.
+// WithClock replaces the clock used for certificate expiry checks and the
+// discovery cache, for tests.
 func WithClock(now func() time.Time) Option {
 	return func(o *options) {
 		o.now = now
@@ -91,8 +98,9 @@ func LoadPool(cfg *config.Config, opts ...Option) (*Pool, error) {
 // call is made; clients are created on first use.
 func NewPool(tc *config.TalosConfig, opts ...Option) (*Pool, error) {
 	o := options{
-		newClient: NewTalosClient,
-		now:       time.Now,
+		newClient:     NewTalosClient,
+		dialDiscovery: dialDiscovery,
+		now:           time.Now,
 	}
 
 	for _, opt := range opts {
@@ -105,14 +113,17 @@ func NewPool(tc *config.TalosConfig, opts ...Option) (*Pool, error) {
 	}
 
 	return &Pool{
-		cfg:       tc.Config,
-		contexts:  tc.Contexts(),
-		current:   tc.Current,
-		creds:     creds,
-		discovery: tc.Discovery,
-		warnings:  slices.Clone(tc.Warnings),
-		newClient: o.newClient,
-		clients:   map[string]Client{},
+		cfg:           tc.Config,
+		contexts:      tc.Contexts(),
+		current:       tc.Current,
+		creds:         creds,
+		discovery:     tc.Discovery,
+		warnings:      slices.Clone(tc.Warnings),
+		newClient:     o.newClient,
+		dialDiscovery: o.dialDiscovery,
+		now:           o.now,
+		clients:       map[string]Client{},
+		affiliates:    map[string]*affiliateCache{},
 	}, nil
 }
 
