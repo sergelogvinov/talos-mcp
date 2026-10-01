@@ -1,0 +1,53 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
+  "name": "talos-mcp",
+  "version": "0.0.0",
+  "display_name": "Talos MCP Server",
+  "description": "Talos is an opinionated MCP server for Kubernetes",
+  "homepage": "https://github.com/sergelogvinov/talos-mcp",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Serge Logvinov",
+    "url": "https://github.com/sergelogvinov/talos-mcp"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sergelogvinov/talos-mcp"
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "server/talos-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/talos-mcp",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "TALOSCONFIG": "${user_config.talosconfig}"
+      }
+    }
+  },
+  "tools_generated": true,
+  "prompts_generated": true,
+  "keywords": [
+    "kubernetes",
+    "helm"
+  ],
+  "user_config": {
+    "talosconfig": {
+      "type": "file",
+      "title": "Talosconfig File",
+      "description": "Path to your talosconfig file",
+      "default": "${HOME}/.talos/config",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  }
+}

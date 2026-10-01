@@ -31,7 +31,7 @@ ENTRYPOINT ["/bin/talos-mcp"]
 
 ########################################
 
-FROM --platform=${TARGETARCH} scratch AS release
+FROM --platform=${TARGETARCH} scratch AS gorelease
 
 COPY --from=gcr.io/distroless/static-debian13:nonroot . .
 ARG TARGETPLATFORM
