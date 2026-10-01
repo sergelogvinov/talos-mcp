@@ -971,9 +971,9 @@ cluster, so the tool is simply present or absent.
 
 The server is built in small steps. Each step compiles, passes `make lint`
 and `make unit`, and leaves the binary usable for everything built so far.
-Unit test files carry the `//go:build unit` tag, because `make unit` runs
-`go test -tags=unit`. Tests for a step land in the same PR as the code
-(§14).
+Unit tests are plain `_test.go` files with no build tag, so `make unit`
+and `go test ./...` run them the same way. Tests for a step land in the
+same PR as the code (§14).
 
 ### 15.1 Open questions to settle first
 

@@ -94,7 +94,7 @@ vet: ## Vet Code
 
 .PHONY: unit
 unit: ## Unit Tests
-	go test -tags=unit $(shell go list ./...) $(TESTARGS)
+	go test $(shell go list ./...) $(TESTARGS)
 
 .PHONY: test
 test: lint unit ## Run all tests
