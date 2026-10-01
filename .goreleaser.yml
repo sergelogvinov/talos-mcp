@@ -132,7 +132,7 @@ publishers:
 
 mcp:
   name: io.github.sergelogvinov/{{ .ProjectName }}
-  title: "Talos MCP is an opinionated MCP server for Talos Linux"
+  title: "Talos MCP server for Talos Linux"
   description: "Talos MCP is an opinionated MCP server for Talos Linux"
   homepage: "https://github.com/sergelogvinov/{{ .ProjectName }}"
   auth:
@@ -141,7 +141,7 @@ mcp:
   repository:
     url: "https://github.com/sergelogvinov/{{ .ProjectName }}"
     source: github
-    # id: ""
+    id: "1399547094"
   transports:
     - type: stdio
     - type: streamable-http
@@ -151,8 +151,3 @@ mcp:
       identifier: "ghcr.io/sergelogvinov/{{ .ProjectName }}:v{{ .Version }}"
       transport:
         type: stdio
-    # - registry_type: mcpb
-    #   identifier: "https://github.com/sergelogvinov/{{ .ProjectName }}/releases/download/v{{ .Version }}/talos-mcp.mcpb"
-    #   fileSha256: '{{ sha256 ./talos-mcp.mcpb }}'
-    #   transport:
-    #     type: stdio
