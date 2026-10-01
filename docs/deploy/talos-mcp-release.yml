@@ -1,0 +1,127 @@
+---
+# Source: talos-mcp/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: talos-mcp
+  labels:
+    helm.sh/chart: talos-mcp-0.0.1
+    app.kubernetes.io/name: talos-mcp
+    app.kubernetes.io/instance: talos-mcp
+    app.kubernetes.io/version: "v0.1.0"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+
+---
+# Source: talos-mcp/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: talos-mcp
+  labels:
+    helm.sh/chart: talos-mcp-0.0.1
+    app.kubernetes.io/name: talos-mcp
+    app.kubernetes.io/instance: talos-mcp
+    app.kubernetes.io/version: "v0.1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: talos-mcp
+    app.kubernetes.io/instance: talos-mcp
+
+---
+# Source: talos-mcp/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: talos-mcp
+  labels:
+    helm.sh/chart: talos-mcp-0.0.1
+    app.kubernetes.io/name: talos-mcp
+    app.kubernetes.io/instance: talos-mcp
+    app.kubernetes.io/version: "v0.1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: talos-mcp
+      app.kubernetes.io/instance: talos-mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: talos-mcp-0.0.1
+        app.kubernetes.io/name: talos-mcp
+        app.kubernetes.io/instance: talos-mcp
+        app.kubernetes.io/version: "v0.1.0"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: talos-mcp
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 65532
+        runAsUser: 65532
+      containers:
+        - name: talos-mcp
+          securityContext:
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+          image: "ghcr.io/sergelogvinov/talos-mcp:v0.1.0"
+          imagePullPolicy: IfNotPresent
+          args:
+            - server
+            - --port=8080
+            - --extensions=all
+            - --allow-destructive
+            - --log-level=info
+            - --log-format=json
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/talos
+              readOnly: false
+      volumes:
+        - name: config
+          secret:
+            secretName: talos-mcp
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: talos-mcp
+                    app.kubernetes.io/instance: talos-mcp
+                namespaces:
+                  - "mcps"
+                topologyKey: kubernetes.io/hostname
+              weight: 1
