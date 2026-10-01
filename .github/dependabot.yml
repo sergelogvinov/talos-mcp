@@ -1,0 +1,57 @@
+---
+# See https://docs.github.com/en/github/administering-a-repository/configuration-options-for-dependency-updates
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    commit-message:
+      prefix: "chore:"
+    open-pull-requests-limit: 8
+    rebase-strategy: disabled
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "08:00"
+      timezone: "UTC"
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns:
+          - "actions/*"
+          - "azure/*"
+          - "docker/*"
+      other:
+        patterns:
+          - "golangci/*"
+
+  - package-ecosystem: "gomod"
+    directory: "/"
+    commit-message:
+      prefix: "chore:"
+    open-pull-requests-limit: 8
+    rebase-strategy: disabled
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    groups:
+      spf13:
+        patterns:
+          - "github.com/spf13/*"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    commit-message:
+      prefix: "chore:"
+    open-pull-requests-limit: 8
+    rebase-strategy: disabled
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "07:00"
+      timezone: "UTC"
+    cooldown:
+      default-days: 7
