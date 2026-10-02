@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.0](https://github.com/sergelogvinov/talos-mcp/compare/v0.1.0...v0.2.0) (2026-10-02)
+
+
+### Features
+
+* add import functionality for machine configs ([e918462](https://github.com/sergelogvinov/talos-mcp/commit/e918462f938f5e3ecf715f934dac3ec2478c2ed2))
+* add talos_node_describe tool ([8c14bcd](https://github.com/sergelogvinov/talos-mcp/commit/8c14bcd8ac89d34f2a270ff8c82ddf98735fe82f))
+* update server listen configuration ([059650d](https://github.com/sergelogvinov/talos-mcp/commit/059650dc80f6df40aa9443347299ab7a08ee030e))
+
+
+### Bug Fixes
+
+* fix goreleaser ([8810a5b](https://github.com/sergelogvinov/talos-mcp/commit/8810a5b210afe76deab336c7532f9d39069c729d))
+* input/output schema handling ([eb66ef4](https://github.com/sergelogvinov/talos-mcp/commit/eb66ef42fac85cd7c52d350c6471bc71f051994a))
+
 ## [0.1.0](https://github.com/sergelogvinov/talos-mcp/compare/v0.0.1...v0.1.0) (2026-10-01)
 
 
