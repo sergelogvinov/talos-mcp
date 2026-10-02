@@ -35,6 +35,9 @@ type Client interface { //nolint:interfacebloat // mirrors the client.Client met
 	ServiceList(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.ServiceListResponse, error)
 	SystemStat(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.SystemStatResponse, error)
 	Memory(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.MemoryResponse, error)
+	LoadAvg(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.LoadAvgResponse, error)
+	Mounts(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.MountsResponse, error)
+	Processes(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.ProcessesResponse, error)
 	Logs(ctx context.Context, namespace string, driver common.ContainerDriver, id string, follow bool, tailLines int32) (machineapi.MachineService_LogsClient, error)
 	Dmesg(ctx context.Context, follow, tail bool) (machineapi.MachineService_DmesgClient, error)
 	// Events is the raw stream, not EventsWatchV2: that one ends the stream
@@ -65,6 +68,11 @@ func (c talosClient) State() state.State {
 // the wrappers, it moves per-node errors from the reply into the error.
 func (c talosClient) SystemStat(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.SystemStatResponse, error) {
 	return client.FilterMessages(c.MachineClient.SystemStat(ctx, &emptypb.Empty{}, callOptions...))
+}
+
+// LoadAvg calls the LoadAvg API; machinery has no wrapper for it either.
+func (c talosClient) LoadAvg(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.LoadAvgResponse, error) {
+	return client.FilterMessages(c.MachineClient.LoadAvg(ctx, &emptypb.Empty{}, callOptions...))
 }
 
 // NewTalosClient is the default ClientFactory. It does not dial: the gRPC

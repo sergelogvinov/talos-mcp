@@ -39,13 +39,20 @@ type FakeNode struct {
 	// Err fails every call to the node, as when it is unreachable.
 	Err error
 
-	Version  string
+	Version string
+	// Arch and Platform are in the Version reply.
+	Arch     string
+	Platform string
 	Services []*machineapi.ServiceInfo
 	// BootTime is Unix seconds; CPUs the number of cores.
 	BootTime        uint64
 	CPUs            int
 	MemTotalKiB     uint64
 	MemAvailableKiB uint64
+	// Load is the 1, 5 and 15 minute load average.
+	Load      [3]float64
+	Mounts    []*machineapi.MountStat
+	Processes []*machineapi.ProcessInfo
 
 	// St serves the node's COSI resources.
 	St state.State
@@ -141,7 +148,10 @@ func (f *FakeClient) Version(ctx context.Context, _ ...grpc.CallOption) (*machin
 		return nil, err
 	}
 
-	return &machineapi.VersionResponse{Messages: []*machineapi.Version{{Version: &machineapi.VersionInfo{Tag: n.Version}}}}, nil
+	return &machineapi.VersionResponse{Messages: []*machineapi.Version{{
+		Version:  &machineapi.VersionInfo{Tag: n.Version, Arch: n.Arch},
+		Platform: &machineapi.PlatformInfo{Name: n.Platform},
+	}}}, nil
 }
 
 // ServiceList answers from Nodes for a node in it, else returns Services.
@@ -192,6 +202,36 @@ func (f *FakeClient) Memory(ctx context.Context, _ ...grpc.CallOption) (*machine
 	return &machineapi.MemoryResponse{Messages: []*machineapi.Memory{{
 		Meminfo: &machineapi.MemInfo{Memtotal: n.MemTotalKiB, Memavailable: n.MemAvailableKiB},
 	}}}, nil
+}
+
+// LoadAvg answers for the node in ctx from Nodes.
+func (f *FakeClient) LoadAvg(ctx context.Context, _ ...grpc.CallOption) (*machineapi.LoadAvgResponse, error) {
+	n, err := f.node(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &machineapi.LoadAvgResponse{Messages: []*machineapi.LoadAvg{{Load1: n.Load[0], Load5: n.Load[1], Load15: n.Load[2]}}}, nil
+}
+
+// Mounts answers for the node in ctx from Nodes.
+func (f *FakeClient) Mounts(ctx context.Context, _ ...grpc.CallOption) (*machineapi.MountsResponse, error) {
+	n, err := f.node(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &machineapi.MountsResponse{Messages: []*machineapi.Mounts{{Stats: n.Mounts}}}, nil
+}
+
+// Processes answers for the node in ctx from Nodes.
+func (f *FakeClient) Processes(ctx context.Context, _ ...grpc.CallOption) (*machineapi.ProcessesResponse, error) {
+	n, err := f.node(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &machineapi.ProcessesResponse{Messages: []*machineapi.Process{{Processes: n.Processes}}}, nil
 }
 
 // Logs streams the last tailLines lines of LogText[id] (all when negative).

@@ -282,18 +282,35 @@ func (d *describe) describeNode(ctx context.Context, node *NodeSummary) ([]strin
 
 	node.Resources = formatResources(stat, mem)
 
-	st := d.client.State()
+	ns := d.t.readNodeStatus(ctx, d.client.State(), warn)
+	node.Stage, node.Ready, node.UnmetConditions, node.KubernetesVersion = ns.stage, ns.ready, ns.unmet, ns.kubelet
+
+	return warnings, nil
+}
+
+// nodeStatus is the machine status and kubelet version of a node.
+type nodeStatus struct {
+	stage   string
+	ready   bool
+	unmet   []string
+	kubelet string
+}
+
+// readNodeStatus reads the MachineStatus and KubeletStatus of the node in
+// ctx. A resource the node doesn't have is not a warning.
+func (t *TalosTools) readNodeStatus(ctx context.Context, st state.State, warn func(what string, err error)) nodeStatus {
+	var ns nodeStatus
 
 	ms, err := safe.StateGetByID[*talosruntime.MachineStatus](ctx, st, talosruntime.MachineStatusID)
 
 	switch {
 	case err == nil:
 		spec := ms.TypedSpec()
-		node.Stage = spec.Stage.String()
-		node.Ready = spec.Status.Ready
+		ns.stage = spec.Stage.String()
+		ns.ready = spec.Status.Ready
 
 		for _, c := range spec.Status.UnmetConditions {
-			node.UnmetConditions = append(node.UnmetConditions, d.t.sanitizer.Sanitize(c.Name+": "+c.Reason))
+			ns.unmet = append(ns.unmet, t.sanitizer.Sanitize(c.Name+": "+c.Reason))
 		}
 	case !notFound(err):
 		warn("machine status", err)
@@ -303,12 +320,12 @@ func (d *describe) describeNode(ctx context.Context, node *NodeSummary) ([]strin
 
 	switch {
 	case err == nil:
-		node.KubernetesVersion = imageTag(kubelet.TypedSpec().Image)
+		ns.kubelet = imageTag(kubelet.TypedSpec().Image)
 	case !notFound(err):
 		warn("kubelet status", err)
 	}
 
-	return warnings, nil
+	return ns
 }
 
 // clusterWide reads the etcd members and the cluster name through a

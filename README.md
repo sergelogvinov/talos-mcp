@@ -45,6 +45,7 @@ The MCP server provides the following tools:
 | `talos_clusters_describe` | `cluster` (optional) | Show every node of a cluster with its role and Talos and kubelet versions. |
 | `talos_clusters_event` | `cluster`, `node`, `since`, `limit`, `actor_id` (all optional) | List recent Talos runtime events, newest first. Defaults: last `1h`, `50` events. |
 | `talos_clusters_members` | `cluster`, `role` (optional) | List cluster members as the discovery service sees them: node ID, hostname, role, addresses, and KubeSpan data. Available only on clusters with discovery keys. |
+| `talos_node_describe` | `cluster`, `node`, `logs`, `log_lines`, `events_since`, `event_limit` (all optional) | Show one node in detail: versions, stage and readiness, resource usage (CPU, load, memory, disks, top processes), every service's state and health, recent events, and the last log lines of the unhealthy services. Secrets in the output are masked. |
 | `talos_node_logs` | `service`, `cluster`, `node`, `kubernetes`, `tail`, `grep` (optional except `service`) | Show the last lines of a Talos service's logs (`kubelet`, `etcd`, `apid`, `machined`, ...) or of a Kubernetes container. |
 | `talos_node_dmesg` | `cluster`, `node`, `tail`, `grep` (all optional) | Show the last lines of a node's kernel log. Secrets in the output are masked. |
 

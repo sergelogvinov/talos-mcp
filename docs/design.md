@@ -244,6 +244,7 @@ Each tool declares the minimum role it needs:
 | `talos_clusters_describe` | reader     |
 | `talos_clusters_event`    | reader     |
 | `talos_clusters_members`  | reader     |
+| `talos_node_describe`     | reader     |
 | `talos_node_logs`         | reader     |
 | `talos_node_dmesg`        | reader     |
 | `talos_node_reboot`       | operator   |
@@ -255,7 +256,7 @@ it is not available on a context without them.
 The read-only roles were checked against the apid authorization rules in
 Talos `main` (`internal/app/machined/pkg/system/services/machined.go`):
 `Logs`, `LogsContainers`, `Dmesg`, `Events`, `ServiceList`, `Version`,
-`SystemStat`, `Memory`, `EtcdMemberList` and COSI `Get`/`List`/`Watch` all
+`SystemStat`, `Memory`, `LoadAvg`, `Mounts`, `Processes`, `EtcdMemberList` and COSI `Get`/`List`/`Watch` all
 allow `os:reader`. `Reboot` needs `os:operator` or `os:admin`. Check this
 again when you pin a `pkg/machinery` version (§15.1). If a release changes a
 rule, this table is the only place that changes.
@@ -364,6 +365,7 @@ internal/
         clusters_describe.go
         clusters_event.go
         clusters_members.go
+        node_describe.go
         node_logs.go
         node_dmesg.go
         node_reboot.go
@@ -537,6 +539,7 @@ func (t *TalosTools) RegisterTools(srv *mcp.Server) {
         }
     }
     if t.enabled("node") {
+        t.RegisterNodeDescribe(srv)
         t.RegisterNodeLogs(srv)
         t.RegisterNodeDmesg(srv)
         // Destructive tools need the flag AND at least one operator cluster (§9).
@@ -570,6 +573,7 @@ Annotations:
 | `talos_clusters_describe` | ✔        |             | ✔          | true      |
 | `talos_clusters_event`    | ✔        |             | ✔          | true      |
 | `talos_clusters_members`  | ✔        |             | ✔          | true      |
+| `talos_node_describe`     | ✔        |             | ✔          | true      |
 | `talos_node_logs`         | ✔        |             | ✔          | true      |
 | `talos_node_dmesg`        | ✔        |             | ✔          | true      |
 | `talos_node_reboot`       |          | ✔           |            | true      |
@@ -990,6 +994,50 @@ Implementation: `RebootWithResponse(client.WithNode(ctx, node), mode option)`;
 the response carries the actor ID. Rejections (role, missing or several
 nodes, bad mode) happen before any Talos client is created.
 
+### 8.8 `talos_node_describe`
+
+Describes one node in a single call, for the "what is wrong with this node"
+question: details, service statuses, recent events, last logs and resource
+usage.
+
+```go
+type NodeDescribeInput struct {
+    Cluster     string   `json:"cluster,omitempty"`
+    Node        string   `json:"node,omitempty"`
+    Logs        []string `json:"logs,omitempty" jsonschema:"Services to show the last log lines of, at most 5; default the unhealthy services, or machined when all are healthy"`
+    LogLines    int      `json:"log_lines,omitempty" jsonschema:"Log lines per service (default 20, max 200)"`
+    EventsSince string   `json:"events_since,omitempty" jsonschema:"default 1h"`
+    EventLimit  int      `json:"event_limit,omitempty" jsonschema:"default 20, max 500"`
+}
+```
+
+The result (`NodeDescribeResult`) has:
+
+- **Details**: address, hostname, role, Talos and kubelet versions,
+  architecture, platform, machine stage, readiness with the unmet
+  conditions, boot time and uptime.
+- **Resources**: CPU cores, load average, memory and swap used, running and
+  blocked processes, one row per block device filesystem (the shortest
+  mount point wins over its bind mounts), and the 5 processes with the most
+  resident memory. Process command lines are left out: they can hold
+  secrets the sanitizer doesn't know.
+- **Services**: every service with its state, health, and last service
+  event.
+- **Events**: the node's events since `events_since`, newest first, read
+  like `talos_clusters_event` does for one node.
+- **Logs**: the last `log_lines` lines of each chosen service. Unknown ids
+  in `logs` are a warning, not an error.
+
+Calls, all through `client.WithNode`: `Version` first; if it fails, the
+tool fails (mapped by §11). Then `ServiceList`, `SystemStat`, `Memory`,
+`LoadAvg`, `Mounts`, `Processes`, COSI `MachineStatus`, `KubeletStatus`, and,
+for a node given by address, `HostnameStatus` and `MachineType`. The events
+backlog is read in parallel with them. Each of these failures is only a
+warning. The text output is the formatter's rendering of the details,
+resources and services, followed by the events as aligned lines and each
+log as raw lines. Log lines, unmet conditions, health and event messages
+are sanitized (§10).
+
 ## 9. Role-based Tool Gating
 
 Tool access is checked at three points. All of them have to allow a call.
@@ -1286,6 +1334,8 @@ starting:
   windows, the ring buffer for dmesg, the 1000-line and 4 KiB caps,
   `Truncated`, and sanitizing every line (§10).
 - Both tools need `reader` (§2.3, §15.1 item 2).
+- `talos_node_describe` (§8.8) reuses the log tail, the machine status
+  read and the event drain of the tools above.
 - Done when the handler tests against the fake client pass, and the golden
   text output is committed.
 

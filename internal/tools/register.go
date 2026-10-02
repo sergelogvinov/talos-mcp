@@ -99,6 +99,7 @@ func (t *TalosTools) RegisterTools(srv *mcp.Server) {
 	}
 
 	if t.enabled(config.ExtensionNode) {
+		t.RegisterNodeDescribe(srv)
 		t.RegisterNodeLogs(srv)
 		t.RegisterNodeDmesg(srv)
 

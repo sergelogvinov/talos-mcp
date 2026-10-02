@@ -226,6 +226,7 @@ clients with simple schema support (for example Gemini) also accept them.
 | `talos_clusters_describe` | cluster | reader   | Health and inventory of all nodes: versions, uptime, services, etcd. |
 | `talos_clusters_event`    | cluster | reader   | Recent runtime events on all nodes or one node.                |
 | `talos_clusters_members`  | cluster | reader   | Member list from the discovery service. Only with discovery keys. |
+| `talos_node_describe`     | node    | reader   | One node in detail: resources, services, events, last logs.    |
 | `talos_node_logs`         | node    | reader   | Tail of a Talos service log or a Kubernetes container log.     |
 | `talos_node_dmesg`        | node    | reader   | Tail of the kernel log.                                        |
 | `talos_node_reboot`       | node    | operator | Reboots one node. Only with `--allow-destructive`.             |

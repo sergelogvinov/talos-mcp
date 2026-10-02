@@ -106,39 +106,12 @@ func (t *TalosTools) NodeLogs(ctx context.Context, in NodeLogsInput) (*NodeLogsR
 		namespace, driver = constants.K8sContainerdNamespace, common.ContainerDriver_CRI
 	}
 
-	// Ask for one line more than needed, to know whether more were available.
-	window := grepWindow(tail, in.Grep)
-
 	nodeCtx := target.nodeContext(ctx)
 
-	stream, err := target.client.Logs(nodeCtx, namespace, driver, service, false, int32(window+1))
+	lines, truncated, err := t.tailLog(nodeCtx, target.client, namespace, driver, service, tail, in.Grep)
 	if err != nil {
 		return nil, t.logsError(nodeCtx, target, err, service, in.Kubernetes)
 	}
-
-	r, err := client.ReadStream(stream)
-	if err != nil {
-		return nil, t.logsError(nodeCtx, target, err, service, in.Kubernetes)
-	}
-	defer r.Close() //nolint:errcheck
-
-	var raw []rawLine
-
-	if err := readLines(r, func(line string, cut bool) { raw = append(raw, rawLine{line, cut}) }); err != nil {
-		return nil, t.logsError(nodeCtx, target, err, service, in.Kubernetes)
-	}
-
-	more := len(raw) > window
-	if more {
-		raw = raw[len(raw)-window:]
-	}
-
-	w := newLineWindow(tail, in.Grep, t.sanitizer.Sanitize)
-	for _, l := range raw {
-		w.add(l.text, l.cut)
-	}
-
-	lines, truncated := w.lines()
 
 	return &NodeLogsResult{
 		Cluster:   target.cluster,
@@ -147,9 +120,48 @@ func (t *TalosTools) NodeLogs(ctx context.Context, in NodeLogsInput) (*NodeLogsR
 		Service:   service,
 		Lines:     lines,
 		Count:     len(lines),
-		Truncated: truncated || more,
+		Truncated: truncated,
 		Warnings:  target.node.Warnings,
 	}, nil
+}
+
+// tailLog returns the last tail lines of a service or container log that
+// match grep, sanitized, and whether lines were dropped or cut. ctx aims at
+// the node.
+func (t *TalosTools) tailLog(ctx context.Context, c talos.Client, namespace string, driver common.ContainerDriver, id string, tail int, grep string) ([]string, bool, error) {
+	// Ask for one line more than needed, to know whether more were available.
+	window := grepWindow(tail, grep)
+
+	stream, err := c.Logs(ctx, namespace, driver, id, false, int32(window+1))
+	if err != nil {
+		return nil, false, err
+	}
+
+	r, err := client.ReadStream(stream)
+	if err != nil {
+		return nil, false, err
+	}
+	defer r.Close() //nolint:errcheck
+
+	var raw []rawLine
+
+	if err := readLines(r, func(line string, cut bool) { raw = append(raw, rawLine{line, cut}) }); err != nil {
+		return nil, false, err
+	}
+
+	more := len(raw) > window
+	if more {
+		raw = raw[len(raw)-window:]
+	}
+
+	w := newLineWindow(tail, grep, t.sanitizer.Sanitize)
+	for _, l := range raw {
+		w.add(l.text, l.cut)
+	}
+
+	lines, truncated := w.lines()
+
+	return lines, truncated || more, nil
 }
 
 type rawLine struct {

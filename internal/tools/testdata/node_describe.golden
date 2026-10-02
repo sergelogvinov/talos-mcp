@@ -1,0 +1,52 @@
+Cluster: prod
+Node address: 10.0.0.21
+Hostname: worker-1
+Role: worker
+Talos version: v1.14.1
+Architecture: amd64
+Platform: metal
+Machine stage: booting
+Ready: false
+Not ready because: nodeReady: node not ready
+Boot time (RFC3339, UTC): 2026-10-01T11:55:00Z
+Uptime: 5m
+
+### Resource usage
+
+CPU cores: 2
+Load average (1m, 5m, 15m): 0.52, 0.48, 0.40
+Memory used: 1.0GiB of 4.0GiB (25%)
+Processes: running=0, blocked=0
+
+#### Disks
+
+| Mounted on | Device | Size | Used | Use% |
+| --- | --- | --- | --- | --- |
+| /system/state | /dev/sda5 | 100.0MiB | 10.0MiB | 10% |
+| /var | /dev/sda6 | 100.0GiB | 25.0GiB | 25% |
+
+#### Top processes by memory
+
+| PID | Command | Memory (RSS) | CPU time |
+| --- | --- | --- | --- |
+| 900 | kubelet | 120.0MiB | 5m0s |
+| 1 | machined | 80.0MiB | 12s |
+| 950 | containerd | 60.0MiB | 30s |
+
+### Services
+
+| Service | State | Health | Last event | Since |
+| --- | --- | --- | --- | --- |
+| cri | Waiting |  |  |  |
+| kubelet | Running | unhealthy: token=*** failed | Health check failed: token=*** | 2026-10-01T11:58:00Z |
+
+### Events since 1h0m0s: 2
+2026-10-01T11:59:00Z  machine_status  stage booting, not ready
+2026-10-01T11:57:00Z  service         kubelet running: Started
+
+### cri logs: 1 lines
+cri waiting for network
+
+### kubelet logs: 2 lines (truncated)
+kubelet xx line 29
+kubelet  line 30

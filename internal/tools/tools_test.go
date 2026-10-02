@@ -155,12 +155,12 @@ func TestRegisterToolsExtensions(t *testing.T) {
 		expected   []string
 	}{
 		{name: "all", extensions: allExtensions(), expected: []string{
-			tools.ToolClustersDescribe, tools.ToolClustersEvent, tools.ToolClustersList, tools.ToolClustersMembers, tools.ToolNodeDmesg, tools.ToolNodeLogs,
+			tools.ToolClustersDescribe, tools.ToolClustersEvent, tools.ToolClustersList, tools.ToolClustersMembers, tools.ToolNodeDescribe, tools.ToolNodeDmesg, tools.ToolNodeLogs,
 		}},
 		{name: "cluster", extensions: map[string]bool{config.ExtensionCluster: true}, expected: []string{
 			tools.ToolClustersDescribe, tools.ToolClustersEvent, tools.ToolClustersList, tools.ToolClustersMembers,
 		}},
-		{name: "node", extensions: map[string]bool{config.ExtensionNode: true}, expected: []string{tools.ToolNodeDmesg, tools.ToolNodeLogs}},
+		{name: "node", extensions: map[string]bool{config.ExtensionNode: true}, expected: []string{tools.ToolNodeDescribe, tools.ToolNodeDmesg, tools.ToolNodeLogs}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			session := newServer(t, tools.NewTalosTools(pool, false, tt.extensions))
@@ -190,7 +190,7 @@ func TestClustersList(t *testing.T) {
 				Name:      "dev",
 				Endpoints: []string{"10.1.0.1", "10.1.0.2"},
 				Role:      "operator",
-				Tools:     []string{tools.ToolClustersDescribe, tools.ToolClustersEvent, tools.ToolClustersList, tools.ToolNodeDmesg, tools.ToolNodeLogs},
+				Tools:     []string{tools.ToolClustersDescribe, tools.ToolClustersEvent, tools.ToolClustersList, tools.ToolNodeDescribe, tools.ToolNodeDmesg, tools.ToolNodeLogs},
 			},
 			{
 				Name:      "prod",
@@ -199,14 +199,14 @@ func TestClustersList(t *testing.T) {
 				Current:   true,
 				Discovery: config.DefaultDiscoveryEndpoint,
 				Role:      "reader",
-				Tools:     []string{tools.ToolClustersDescribe, tools.ToolClustersEvent, tools.ToolClustersList, tools.ToolClustersMembers, tools.ToolNodeDmesg, tools.ToolNodeLogs},
+				Tools:     []string{tools.ToolClustersDescribe, tools.ToolClustersEvent, tools.ToolClustersList, tools.ToolClustersMembers, tools.ToolNodeDescribe, tools.ToolNodeDmesg, tools.ToolNodeLogs},
 			},
 			{
 				Name:        "staging",
 				Endpoints:   []string{"staging.example.com"},
 				CertExpires: "2026-10-03T12:00:00Z",
 				Role:        "operator",
-				Tools:       []string{tools.ToolClustersDescribe, tools.ToolClustersEvent, tools.ToolClustersList, tools.ToolNodeDmesg, tools.ToolNodeLogs},
+				Tools:       []string{tools.ToolClustersDescribe, tools.ToolClustersEvent, tools.ToolClustersList, tools.ToolNodeDescribe, tools.ToolNodeDmesg, tools.ToolNodeLogs},
 			},
 		},
 	}, tt.ClustersList(now))

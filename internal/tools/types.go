@@ -161,3 +161,75 @@ type EtcdMemberSummary struct {
 	ID       string `json:"id" jsonschema:"Member ID"`
 	Learner  bool   `json:"learner" jsonschema:"Learner"`
 }
+
+// NodeDescribeResult is the structured output of the talos_node_describe
+// tool.
+type NodeDescribeResult struct {
+	Cluster           string          `json:"cluster" jsonschema:"Cluster"`
+	Node              string          `json:"node" jsonschema:"Node address"`
+	Hostname          string          `json:"hostname,omitempty" jsonschema:"Hostname"`
+	Role              string          `json:"role,omitempty" jsonschema:"Role"`
+	TalosVersion      string          `json:"talos_version,omitempty" jsonschema:"Talos version"`
+	KubernetesVersion string          `json:"kubernetes_version,omitempty" jsonschema:"Kubelet version"`
+	Arch              string          `json:"arch,omitempty" jsonschema:"Architecture"`
+	Platform          string          `json:"platform,omitempty" jsonschema:"Platform"`
+	Stage             string          `json:"stage,omitempty" jsonschema:"Machine stage"`
+	Ready             bool            `json:"ready" jsonschema:"Ready"`
+	UnmetConditions   []string        `json:"unmet_conditions,omitempty" jsonschema:"Not ready because"`
+	BootTime          string          `json:"boot_time,omitempty" jsonschema:"Boot time (RFC3339, UTC)"`
+	Uptime            string          `json:"uptime,omitempty" jsonschema:"Uptime"`
+	Warnings          []string        `json:"warnings,omitempty" jsonschema:"Warnings, such as data that could not be read"`
+	Resources         NodeResources   `json:"resources" jsonschema:"Resource usage"`
+	Services          []ServiceStatus `json:"services" jsonschema:"Services"`
+	EventsSince       string          `json:"events_since,omitempty" jsonschema:"Time window of the events, e.g. 1h0m0s"`
+	EventsTruncated   bool            `json:"events_truncated,omitempty" jsonschema:"More events were found than returned"`
+	Events            []EventSummary  `json:"events" jsonschema:"Recent events of the node, newest first"`
+	Logs              []ServiceLog    `json:"logs" jsonschema:"Last log lines of services"`
+}
+
+// NodeResources is the resource usage of a node.
+type NodeResources struct {
+	CPUs         int            `json:"cpus,omitempty" jsonschema:"CPU cores"`
+	LoadAverage  string         `json:"load_average,omitempty" jsonschema:"Load average (1m, 5m, 15m)"`
+	Memory       string         `json:"memory,omitempty" jsonschema:"Memory used"`
+	Swap         string         `json:"swap,omitempty" jsonschema:"Swap used"`
+	Processes    string         `json:"processes,omitempty" jsonschema:"Processes"`
+	Disks        []DiskUsage    `json:"disks,omitempty" jsonschema:"Disks"`
+	TopProcesses []ProcessUsage `json:"top_processes,omitempty" jsonschema:"Top processes by memory"`
+}
+
+// DiskUsage is one block device filesystem. The jsonschema text is also the
+// text column header, so it stays short.
+type DiskUsage struct {
+	MountedOn   string `json:"mounted_on" jsonschema:"Mounted on"`
+	Device      string `json:"device" jsonschema:"Device"`
+	Size        string `json:"size" jsonschema:"Size"`
+	Used        string `json:"used" jsonschema:"Used"`
+	UsedPercent string `json:"used_percent" jsonschema:"Use%"`
+}
+
+// ProcessUsage is one process of a node.
+type ProcessUsage struct {
+	PID     int32  `json:"pid" jsonschema:"PID"`
+	Command string `json:"command" jsonschema:"Command"`
+	Memory  string `json:"memory" jsonschema:"Memory (RSS)"`
+	CPUTime string `json:"cpu_time" jsonschema:"CPU time"`
+}
+
+// ServiceStatus is one Talos service of a node.
+type ServiceStatus struct {
+	ID        string `json:"id" jsonschema:"Service"`
+	State     string `json:"state" jsonschema:"State"`
+	Health    string `json:"health,omitempty" jsonschema:"Health"`
+	LastEvent string `json:"last_event,omitempty" jsonschema:"Last event"`
+	Since     string `json:"since,omitempty" jsonschema:"Since"`
+}
+
+// ServiceLog is the tail of one service log.
+type ServiceLog struct {
+	Service   string   `json:"service" jsonschema:"Service id"`
+	Lines     []string `json:"lines" jsonschema:"Log lines, oldest first, sanitized"`
+	Count     int      `json:"count" jsonschema:"Number of lines returned"`
+	Truncated bool     `json:"truncated" jsonschema:"More lines were available than returned, or a line was cut at 4 KiB"`
+	Error     string   `json:"error,omitempty" jsonschema:"Why the log could not be read"`
+}
