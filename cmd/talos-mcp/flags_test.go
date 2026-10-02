@@ -32,9 +32,10 @@ func TestFlagsEnvFallback(t *testing.T) {
 	t.Setenv(envAllowDestructive, "true")
 	t.Setenv(envLogLevel, "debug")
 	t.Setenv(envLogFormat, "json")
-	t.Setenv(envPort, "9090")
+	t.Setenv(envListenAddress, "[::1]:9090")
 
-	cfg, err := DefaultFlags().Config()
+	f := DefaultFlags()
+	cfg, err := f.Config()
 	require.NoError(t, err)
 
 	assert.Equal(t, "/etc/talos/config", cfg.TalosConfig)
@@ -43,7 +44,7 @@ func TestFlagsEnvFallback(t *testing.T) {
 	assert.True(t, cfg.AllowDestructive)
 	assert.Equal(t, "debug", cfg.LogLevel)
 	assert.Equal(t, "json", cfg.LogFormat)
-	assert.Equal(t, 9090, cfg.Port)
+	assert.Equal(t, "[::1]:9090", f.ListenAddress)
 }
 
 func TestFlagsOverrideEnv(t *testing.T) {
@@ -66,11 +67,12 @@ func TestFlagsDefaults(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	for _, env := range []string{envTalosConfig, envContext, envExtensions, envAllowDestructive, envLogLevel, envLogFormat, envPort} {
+	for _, env := range []string{envTalosConfig, envContext, envExtensions, envAllowDestructive, envLogLevel, envLogFormat, envListenAddress} {
 		t.Setenv(env, "")
 	}
 
-	cfg, err := DefaultFlags().Config()
+	f := DefaultFlags()
+	cfg, err := f.Config()
 	require.NoError(t, err)
 
 	assert.Equal(t, filepath.Join(home, ".talos", "config"), cfg.TalosConfig)
@@ -79,7 +81,7 @@ func TestFlagsDefaults(t *testing.T) {
 	assert.False(t, cfg.AllowDestructive)
 	assert.Equal(t, defaultLogLevel, cfg.LogLevel)
 	assert.Equal(t, defaultLogFormat, cfg.LogFormat)
-	assert.Equal(t, defaultPort, cfg.Port)
+	assert.Equal(t, defaultListenAddress, f.ListenAddress)
 }
 
 func TestFlagsInvalidValues(t *testing.T) {
@@ -97,6 +99,49 @@ func TestFlagsInvalidValues(t *testing.T) {
 
 			_, err := f.Config()
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestFlagsListenAddress(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		env     map[string]string
+		args    []string
+		want    string
+		wantErr string
+	}{
+		{name: "default", want: "127.0.0.1:8080"},
+		{name: "all addresses", args: []string{"--listen-address", ":8080"}, want: ":8080"},
+		{name: "ipv6 any", args: []string{"--listen-address", "[::]:8080"}, want: "[::]:8080"},
+		{name: "ipv6 loopback", args: []string{"--listen-address", "[::1]:9090"}, want: "[::1]:9090"},
+		{name: "hostname", args: []string{"--listen-address", "localhost:8080"}, want: "localhost:8080"},
+		{name: "env", env: map[string]string{envListenAddress: ":9090"}, want: ":9090"},
+		{name: "flag over env", env: map[string]string{envListenAddress: ":9090"}, args: []string{"--listen-address", "127.0.0.1:8081"}, want: "127.0.0.1:8081"},
+		{name: "no port", args: []string{"--listen-address", "127.0.0.1"}, wantErr: `invalid listen address "127.0.0.1": must be host:port, like 127.0.0.1:8080 or :8080`},
+		{name: "ipv6 without brackets", args: []string{"--listen-address", "::1:8080"}, wantErr: `invalid listen address "::1:8080": write an IPv6 address in brackets, like [::1]:8080`},
+		{name: "port range", args: []string{"--listen-address", ":70000"}, wantErr: `invalid listen port "70000": must be a number between 1 and 65535`},
+		{name: "port zero", args: []string{"--listen-address", ":0"}, wantErr: `invalid listen port "0": must be a number between 1 and 65535`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, env := range []string{envListenAddress} {
+				t.Setenv(env, tt.env[env])
+			}
+
+			f := DefaultFlags()
+			fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+			f.AddServerFlags(fs)
+			require.NoError(t, fs.Parse(tt.args))
+
+			addr, err := f.listenAddress()
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, addr)
 		})
 	}
 }

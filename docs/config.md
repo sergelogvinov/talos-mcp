@@ -192,8 +192,7 @@ These are not about the talosconfig, but are listed for completeness.
 | `--allow-destructive` | `ALLOW_DESTRUCTIVE` | `false` | Enable destructive tools such as `talos_node_reboot` (operator role needed). |
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 | `--log-format` | `LOG_FORMAT` | `text` | `text` or `json`. |
-| `--port` | `PORT` | `8080` | `server` mode: HTTP listen port. |
-| `--listen` | `LISTEN` | `127.0.0.1` | `server` mode: listen address. Use `0.0.0.0` to accept connections from other hosts. |
+| `--listen-address` | `LISTEN_ADDRESS` | `127.0.0.1:8080` | `server` mode: listen address as `host:port`. Use `:8080` to accept connections on every IPv4 and IPv6 address (dual stack). Write an IPv6 address in brackets, like `[::1]:8080`. The container image sets `:8080`. |
 | `--disable-localhost-protection` | `DISABLE_LOCALHOST_PROTECTION` | `false` | `server` mode: accept a non-localhost `Host` header on a loopback address, as sent by a sidecar proxy. This disables DNS rebinding protection. |
 
 Boolean environment variables accept `true`/`1`/`yes`/`on` and

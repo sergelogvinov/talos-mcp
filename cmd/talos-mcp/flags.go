@@ -18,6 +18,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -35,8 +36,7 @@ const (
 	flagAllowDestructive = "allow-destructive"
 	flagLogLevel         = "log-level"
 	flagLogFormat        = "log-format"
-	flagPort             = "port"
-	flagListen           = "listen"
+	flagListenAddress    = "listen-address"
 	flagNoHostCheck      = "disable-localhost-protection"
 	flagIdentity         = "talosconfig-identity"
 	flagPassphraseFile   = "talosconfig-passphrase-file"
@@ -49,8 +49,7 @@ const (
 	envAllowDestructive = "ALLOW_DESTRUCTIVE"
 	envLogLevel         = "LOG_LEVEL"
 	envLogFormat        = "LOG_FORMAT"
-	envPort             = "PORT"
-	envListen           = "LISTEN"
+	envListenAddress    = "LISTEN_ADDRESS"
 	envNoHostCheck      = "DISABLE_LOCALHOST_PROTECTION"
 	envIdentity         = "TALOSCONFIG_IDENTITY"
 	envPassphraseFile   = "TALOSCONFIG_PASSPHRASE_FILE"
@@ -64,8 +63,7 @@ const (
 	defaultAllowDestructive = false
 	defaultLogLevel         = "info"
 	defaultLogFormat        = "text"
-	defaultPort             = 8080
-	defaultListen           = "127.0.0.1"
+	defaultListenAddress    = "127.0.0.1:8080"
 	defaultOutputFormat     = "text"
 )
 
@@ -77,8 +75,7 @@ type Flags struct {
 	AllowDestructive bool
 	LogLevel         string
 	LogFormat        string
-	Port             int
-	Listen           string
+	ListenAddress    string
 	NoHostCheck      bool
 	Output           string
 
@@ -94,17 +91,11 @@ type Flags struct {
 	// prompt allows the terminal prompt. Only the tools and config
 	// subcommands set it: in mcp mode stdin is the transport.
 	prompt bool
-
-	// portErr is set when PORT is not a number. Only the server uses the
-	// port, so it reports the error unless --port is given.
-	portErr error
 }
 
 // DefaultFlags returns the default flags for the command,
 // populated from environment variables where applicable.
 func DefaultFlags() *Flags {
-	port, portErr := envInt(envPort, defaultPort)
-
 	return &Flags{
 		TalosConfig:        withDefaultEnv(envTalosConfig, ""),
 		Context:            withDefaultEnv(envContext, ""),
@@ -112,8 +103,7 @@ func DefaultFlags() *Flags {
 		AllowDestructive:   withDefaultEnvBool(envAllowDestructive, defaultAllowDestructive),
 		LogLevel:           withDefaultEnv(envLogLevel, defaultLogLevel),
 		LogFormat:          withDefaultEnv(envLogFormat, defaultLogFormat),
-		Port:               port,
-		Listen:             withDefaultEnv(envListen, defaultListen),
+		ListenAddress:      withDefaultEnv(envListenAddress, defaultListenAddress),
 		NoHostCheck:        withDefaultEnvBool(envNoHostCheck, false),
 		Output:             defaultOutputFormat,
 		Identity:           splitList(withDefaultEnv(envIdentity, "")),
@@ -121,7 +111,6 @@ func DefaultFlags() *Flags {
 		Askpass:            withDefaultEnv(envAskpass, ""),
 		RequireAllContexts: withDefaultEnvBool(envRequireAll, false),
 		passphrase:         secrets.TakeEnv(envPassphrase),
-		portErr:            portErr,
 	}
 }
 
@@ -141,8 +130,8 @@ func (f *Flags) AddPersistentFlags(flags *pflag.FlagSet) {
 
 // AddServerFlags adds the flags for the "server" subcommand.
 func (f *Flags) AddServerFlags(flags *pflag.FlagSet) {
-	flags.IntVarP(&f.Port, flagPort, "", f.Port, "http listen port, env "+envPort)
-	flags.StringVarP(&f.Listen, flagListen, "", f.Listen, "http listen address; use 0.0.0.0 to accept connections from other hosts, env "+envListen)
+	flags.StringVarP(&f.ListenAddress, flagListenAddress, "", f.ListenAddress,
+		"http listen address as host:port; use :8080 to accept connections on all IPv4 and IPv6 addresses, env "+envListenAddress)
 	flags.BoolVarP(&f.NoHostCheck, flagNoHostCheck, "", f.NoHostCheck,
 		"accept requests on a loopback address with a non-localhost Host header, as sent by a sidecar proxy (disables DNS rebinding protection), env "+envNoHostCheck)
 	flags.BoolVarP(&f.RequireAllContexts, flagRequireAll, "", f.RequireAllContexts, "fail to start when any talosconfig context is skipped, env "+envRequireAll+" (default: false)")
@@ -178,14 +167,31 @@ func (f *Flags) Config() (*config.Config, error) {
 		Context:            f.Context,
 		Unlock:             f.unlockOptions(),
 		RequireAllContexts: f.RequireAllContexts,
-		Port:               f.Port,
-		Listen:             f.Listen,
 		NoHostCheck:        f.NoHostCheck,
 		Extensions:         f.Extensions,
 		AllowDestructive:   f.AllowDestructive,
 		LogLevel:           f.LogLevel,
 		LogFormat:          f.LogFormat,
 	}, nil
+}
+
+// listenAddress validates ListenAddress and returns it. An empty host
+// listens on every IPv4 and IPv6 address.
+func (f *Flags) listenAddress() (string, error) {
+	_, port, err := net.SplitHostPort(f.ListenAddress)
+	if err != nil {
+		if strings.Count(f.ListenAddress, ":") > 1 && !strings.HasPrefix(f.ListenAddress, "[") {
+			return "", fmt.Errorf("invalid listen address %q: write an IPv6 address in brackets, like [::1]:8080", f.ListenAddress)
+		}
+
+		return "", fmt.Errorf("invalid listen address %q: must be host:port, like 127.0.0.1:8080 or :8080", f.ListenAddress)
+	}
+
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return "", fmt.Errorf("invalid listen port %q: must be a number between 1 and 65535", port)
+	}
+
+	return f.ListenAddress, nil
 }
 
 // haveTerminal reports whether a terminal prompt is possible. Tests replace it,
@@ -229,23 +235,6 @@ func withDefaultEnv(key string, def string) string {
 		return val
 	}
 	return def
-}
-
-// envInt returns the environment value as a number, or def when it is unset
-// or empty. A value that is not a number is an error, so a typo does not
-// silently fall back to def.
-func envInt(key string, def int) (int, error) {
-	val, ok := os.LookupEnv(key)
-	if !ok || val == "" {
-		return def, nil
-	}
-
-	n, err := strconv.Atoi(val)
-	if err != nil {
-		return def, fmt.Errorf("invalid %s %q: must be a number", key, val)
-	}
-
-	return n, nil
 }
 
 func withDefaultEnvBool(key string, def bool) bool {

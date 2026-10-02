@@ -385,37 +385,20 @@ func talosconfigFile(t *testing.T) string {
 	return path
 }
 
-func TestServerPortEnv(t *testing.T) {
-	t.Setenv(envPort, "9090 ")
+func TestServerInvalidListenAddress(t *testing.T) {
+	t.Setenv(envListenAddress, ":9090 ")
 	t.Setenv(envTalosConfig, talosconfigFile(t))
 
 	cmd := newServerCmd(DefaultFlags())
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
 	cmd.SetArgs(nil)
-	require.EqualError(t, cmd.ExecuteContext(t.Context()), `invalid PORT "9090 ": must be a number`)
-
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-
-	cmd = newServerCmd(DefaultFlags())
-	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	cmd.SetArgs([]string{"--port", "0"})
-	require.EqualError(t, cmd.ExecuteContext(ctx), "invalid port 0: must be between 1 and 65535",
-		"--port replaces the PORT value, so its error no longer applies")
+	require.EqualError(t, cmd.ExecuteContext(t.Context()), `invalid listen port "9090 ": must be a number between 1 and 65535`)
 }
 
 func TestServerListenDefault(t *testing.T) {
-	t.Setenv(envListen, "")
-	assert.Equal(t, "127.0.0.1", DefaultFlags().Listen, "the server is local unless asked otherwise")
+	t.Setenv(envListenAddress, "")
+	assert.Equal(t, "127.0.0.1:8080", DefaultFlags().ListenAddress, "the server is local unless asked otherwise")
 
-	t.Setenv(envListen, "0.0.0.0")
-	assert.Equal(t, "0.0.0.0", DefaultFlags().Listen)
-}
-
-func TestServerInvalidPort(t *testing.T) {
-	f := DefaultFlags()
-	f.TalosConfig = talosconfigFile(t)
-	f.Port = 70000
-
-	require.EqualError(t, runServer(t.Context(), f), "invalid port 70000: must be between 1 and 65535")
+	t.Setenv(envListenAddress, ":8080")
+	assert.Equal(t, ":8080", DefaultFlags().ListenAddress)
 }

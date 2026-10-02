@@ -23,7 +23,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,10 +56,6 @@ func newServerCmd(flags *Flags) *cobra.Command {
 		Short: "Run MCP server over streamable HTTP",
 		Long:  "Run MCP server over streamable HTTP, served on /mcp with a health check on /healthz",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if cmd.Flags().Changed(flagPort) {
-				flags.portErr = nil
-			}
-
 			return runServer(cmd.Context(), flags)
 		},
 	}
@@ -73,17 +68,14 @@ func newServerCmd(flags *Flags) *cobra.Command {
 // runServer loads the talosconfig, creates the Talos pool, and serves MCP
 // over streamable HTTP until ctx is canceled.
 func runServer(ctx context.Context, f *Flags) error {
-	if f.portErr != nil {
-		return f.portErr
+	addr, err := f.listenAddress()
+	if err != nil {
+		return err
 	}
 
 	cfg, err := f.Config()
 	if err != nil {
 		return err
-	}
-
-	if cfg.Port < 1 || cfg.Port > 65535 {
-		return fmt.Errorf("invalid port %d: must be between 1 and 65535", cfg.Port)
 	}
 
 	log, err := newLogger(cfg)
@@ -104,8 +96,6 @@ func runServer(ctx context.Context, f *Flags) error {
 	if plain := pool.PlaintextKeys(); len(plain) > 0 {
 		log.Info("talosconfig keys are stored unencrypted; consider talos-mcp config encrypt", "clusters", strings.Join(plain, ","))
 	}
-
-	addr := net.JoinHostPort(cfg.Listen, strconv.Itoa(cfg.Port))
 
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", addr)
 	if err != nil {

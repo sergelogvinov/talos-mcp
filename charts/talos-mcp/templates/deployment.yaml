@@ -50,7 +50,6 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - server
-            - --port=8080
           {{- with .Values.args }}
             {{- . | toYaml | nindent 12 }}
           {{- end }}

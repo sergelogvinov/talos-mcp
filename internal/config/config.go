@@ -34,9 +34,7 @@ type Config struct {
 	Context            string // optional: restrict to one context
 	Unlock             secrets.Options
 	RequireAllContexts bool // server: a skipped context is fatal
-	Port               int
-	Listen             string // server listen address
-	NoHostCheck        bool   // server: disable DNS rebinding protection
+	NoHostCheck        bool // server: disable DNS rebinding protection
 	Extensions         string
 	AllowDestructive   bool
 	LogLevel           string

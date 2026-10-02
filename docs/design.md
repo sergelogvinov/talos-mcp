@@ -275,7 +275,6 @@ How the table is enforced is described in §9. Recommended credentials:
 type Config struct {
     TalosConfig      string // resolved path
     Context          string // optional: restrict to one context
-    Port             int
     Extensions       string
     AllowDestructive bool
     LogLevel         string
@@ -290,8 +289,8 @@ Commands are built with `github.com/spf13/cobra`. Flags are defined with
 the same way as `proxmox-mcp/cmd/proxmox-mcp/flags.go`.
 
 ```
-talos-mcp mcp       [global flags]               # stdio transport
-talos-mcp server    [global flags] --port 8080   # streamable HTTP on /mcp, /healthz
+talos-mcp mcp       [global flags]                         # stdio transport
+talos-mcp server    [global flags] --listen-address :8080  # streamable HTTP on /mcp, /healthz
 talos-mcp tools     [global flags] [-o text|json|yaml] [tool] [key=value ...]
 talos-mcp version
 talos-mcp config    encrypt|decrypt|check     # encrypted secrets, see secrets.md
@@ -309,8 +308,7 @@ talos-mcp config    encrypt|decrypt|check     # encrypted secrets, see secrets.m
 | `--talosconfig-passphrase-file`  | `TALOSCONFIG_PASSPHRASE_FILE`  | none              | persistent |
 | `--talosconfig-askpass`          | `TALOSCONFIG_ASKPASS`          | none              | persistent |
 | —                                | `TALOSCONFIG_PASSPHRASE`       | none              | persistent |
-| `--port`                         | `PORT`                         | `8080`            | `server`   |
-| `--listen`                       | `LISTEN`                       | `127.0.0.1`       | `server`   |
+| `--listen-address`               | `LISTEN_ADDRESS`               | `127.0.0.1:8080`  | `server`   |
 | `--disable-localhost-protection` | `DISABLE_LOCALHOST_PROTECTION` | `false`           | `server`   |
 | `--require-all-contexts`         | `REQUIRE_ALL_CONTEXTS`         | `false`           | `server`   |
 | `-o, --output`                   | —                              | `text`            | `tools`    |
@@ -1132,13 +1130,15 @@ cluster, so the tool is simply present or absent.
   The Helm chart's optional NetworkPolicy allows that endpoint alongside the
   Talos endpoints.
 - **Streamable HTTP (`server`)** serves `/mcp` and `/healthz` on
-  `<listen>:<port>`, the same as in proxmox-mcp. `--listen` defaults to
-  `127.0.0.1`, because the endpoint has no authentication and acts with the
-  talosconfig credentials. The container image sets `LISTEN=0.0.0.0`. The
+  `--listen-address` (`host:port`). It defaults to `127.0.0.1:8080`, because
+  the endpoint has no authentication and acts with the talosconfig
+  credentials. The container image sets `LISTEN_ADDRESS=:8080`, which listens
+  on every IPv4 and IPv6 address (dual stack). The
   SDK's DNS rebinding protection rejects a request that arrives on a loopback
   address with a non-localhost `Host` header. `--disable-localhost-protection`
-  turns it off for a sidecar proxy that forwards to 127.0.0.1. A `PORT` value
-  that is not a number is an error, not a silent fallback to 8080. Sessions
+  turns it off for a sidecar proxy that forwards to 127.0.0.1 or [::1]. An
+  address without a port, or an IPv6 address without brackets, is an error.
+  Sessions
   with no request for an hour are closed.
 - **Shutdown:** on SIGINT/SIGTERM the server stops accepting connections and
   ends standing SSE streams (GET) at once, because they never finish on their

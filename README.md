@@ -153,8 +153,7 @@ Start the streamable HTTP server with:
 ```sh
 talos-mcp server \
   --talosconfig /absolute/path/to/talosconfig \
-  --listen 0.0.0.0 \
-  --port 8080
+  --listen-address :8080
 ```
 
 The MCP endpoint is `http://host:8080/mcp`, and a health check is served on
@@ -201,9 +200,9 @@ priority than an environment variable.
 | `--log-level <level>` | `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, or `error`. |
 | `--log-format <format>` | `LOG_FORMAT` | `text` | Log output format: `text` or `json`. |
 
-The `server` command also accepts `--port` (`PORT`, default `8080`),
-`--listen` (`LISTEN`, default `127.0.0.1`), and `--require-all-contexts`
-(`REQUIRE_ALL_CONTEXTS`). The `tools` command accepts `--output` (`-o`) with
+The `server` command also accepts `--listen-address` (`LISTEN_ADDRESS`,
+default `127.0.0.1:8080`) and `--require-all-contexts`
+(`REQUIRE_ALL_CONTEXTS`). The container image sets `LISTEN_ADDRESS=:8080`. The `tools` command accepts `--output` (`-o`) with
 `text`, `json`, or `yaml`. Its default is `text`.
 
 For example, run the stdio server with JSON logs:
