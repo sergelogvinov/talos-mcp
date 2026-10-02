@@ -32,12 +32,19 @@ const nullType = "null"
 // tool does not set and rewrites both schemas with singleTypes. Output keeps
 // a null branch, because a nil slice is serialized as null. Input does not:
 // a client leaves an optional field out instead of sending null.
+//
+// Like mcp.AddTool, an `any` input is an empty object, and an `any` output
+// has no output schema.
 func addTool[In, Out any](srv *mcp.Server, tool *mcp.Tool, h mcp.ToolHandlerFor[In, Out]) {
 	if tool.InputSchema == nil {
-		tool.InputSchema = inferSchema[In](tool.Name, "input")
+		if reflect.TypeFor[In]() == reflect.TypeFor[any]() {
+			tool.InputSchema = &jsonschema.Schema{Type: "object"}
+		} else {
+			tool.InputSchema = inferSchema[In](tool.Name, "input")
+		}
 	}
 
-	if tool.OutputSchema == nil {
+	if tool.OutputSchema == nil && reflect.TypeFor[Out]() != reflect.TypeFor[any]() {
 		tool.OutputSchema = inferSchema[Out](tool.Name, "output")
 	}
 
