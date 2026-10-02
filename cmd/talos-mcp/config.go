@@ -34,6 +34,7 @@ import (
 	"github.com/sergelogvinov/talos-mcp/internal/secrets"
 	"github.com/sergelogvinov/talos-mcp/internal/talos"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // encryptPrompt asks for the passphrase that config encrypt encrypts with.
@@ -46,8 +47,8 @@ var secretFields = []string{config.FieldKey, config.FieldClusterSecret}
 func newConfigCmd(flags *Flags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "Encrypt, decrypt and check talosconfig secrets",
-		Long:  "Encrypt, decrypt and check the key and cluster_secret fields of a talosconfig with age",
+		Short: "Import, encrypt, decrypt and check talosconfig contexts",
+		Long:  "Import a context from a Talos machine config, and encrypt, decrypt and check the key and cluster_secret fields of a talosconfig with age",
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 			// These commands may prompt on the terminal for a passphrase.
 			flags.prompt = true
@@ -61,6 +62,7 @@ func newConfigCmd(flags *Flags) *cobra.Command {
 	}
 
 	cmd.AddCommand(
+		newConfigImportCmd(flags),
 		newConfigEncryptCmd(flags),
 		newConfigDecryptCmd(flags),
 		newConfigCheckCmd(flags),
@@ -92,9 +94,7 @@ func newConfigEncryptCmd(flags *Flags) *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&o.output, "output", "o", "", "output file, created with mode 0600 (required)")
-	cmd.Flags().BoolVarP(&o.passphrase, "passphrase", "", false, "encrypt with a passphrase, prompted twice on the terminal (implied by --talosconfig-passphrase-file or --talosconfig-askpass)")
-	cmd.Flags().StringArrayVarP(&o.recipients, "recipient", "r", nil, "age (age1...) or SSH public key to encrypt to (repeatable)")
-	cmd.Flags().StringArrayVarP(&o.recipientFiles, "recipient-file", "R", nil, "file with recipients, one per line, such as ~/.ssh/id_ed25519.pub (repeatable)")
+	o.addFlags(cmd.Flags())
 	cmd.Flags().StringSliceVarP(&o.fields, "field", "", nil, "fields to encrypt: key, cluster_secret (default: both)")
 	cmd.MarkFlagRequired("output") //nolint:errcheck
 
@@ -113,18 +113,9 @@ func runConfigEncrypt(stderr io.Writer, f *Flags, o *encryptOptions) error {
 		}
 	}
 
-	hasRecipients := len(o.recipients) > 0 || len(o.recipientFiles) > 0
-
-	// A passphrase source given without recipients asks for passphrase
-	// encryption, so --passphrase is not needed with it.
-	if !hasRecipients && (f.PassphraseFile != "" || f.Askpass != "" || f.passphrase != nil) {
-		o.passphrase = true
-	}
-
-	switch {
-	case o.passphrase && hasRecipients:
-		return errors.New("--passphrase cannot be combined with --recipient or --recipient-file: age allows only one passphrase and no other recipient")
-	case !o.passphrase && !hasRecipients:
+	if enabled, err := o.resolve(f); err != nil {
+		return err
+	} else if !enabled {
 		return fmt.Errorf("set --passphrase, --recipient, --recipient-file, --%s or --%s", flagPassphraseFile, flagAskpass)
 	}
 
@@ -178,6 +169,30 @@ func runConfigEncrypt(stderr io.Writer, f *Flags, o *encryptOptions) error {
 	fmt.Fprintf(stderr, "encrypted %d fields, %d already encrypted, written to %s\n", encrypted, kept, o.output)
 
 	return nil
+}
+
+// addFlags adds the flags that choose the passphrase or the recipients.
+func (o *encryptOptions) addFlags(fs *pflag.FlagSet) {
+	fs.BoolVarP(&o.passphrase, "passphrase", "", false, "encrypt with a passphrase, prompted twice on the terminal (implied by --talosconfig-passphrase-file or --talosconfig-askpass)")
+	fs.StringArrayVarP(&o.recipients, "recipient", "r", nil, "age (age1...) or SSH public key to encrypt to (repeatable)")
+	fs.StringArrayVarP(&o.recipientFiles, "recipient-file", "R", nil, "file with recipients, one per line, such as ~/.ssh/id_ed25519.pub (repeatable)")
+}
+
+// resolve checks the passphrase and recipient flags, and reports whether
+// they ask for encryption. A passphrase source given without recipients asks
+// for passphrase encryption, so --passphrase is not needed with it.
+func (o *encryptOptions) resolve(f *Flags) (bool, error) {
+	hasRecipients := len(o.recipients) > 0 || len(o.recipientFiles) > 0
+
+	if !hasRecipients && (f.PassphraseFile != "" || f.Askpass != "" || f.passphrase != nil) {
+		o.passphrase = true
+	}
+
+	if o.passphrase && hasRecipients {
+		return false, errors.New("--passphrase cannot be combined with --recipient or --recipient-file: age allows only one passphrase and no other recipient")
+	}
+
+	return o.passphrase || hasRecipients, nil
 }
 
 // encryptRecipients returns the recipients of config encrypt: the passphrase,

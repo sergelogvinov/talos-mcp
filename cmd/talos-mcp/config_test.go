@@ -30,6 +30,9 @@ import (
 	"github.com/sergelogvinov/talos-mcp/internal/secrets"
 	"github.com/sergelogvinov/talos-mcp/internal/talos/talostest"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
+	"github.com/siderolabs/talos/pkg/machinery/config/generate"
+	"github.com/siderolabs/talos/pkg/machinery/config/machine"
+	"github.com/siderolabs/talos/pkg/machinery/constants"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -393,4 +396,117 @@ func TestServerRequireAllContexts(t *testing.T) {
 	err = runServer(t.Context(), f)
 	require.EqualError(t, err, "--require-all-contexts: talosconfig contexts skipped: staging")
 	assert.False(t, strings.Contains(err.Error(), "BEGIN"))
+}
+
+// controlPlaneConfig writes a control plane machine config for cluster "prod".
+func controlPlaneConfig(t *testing.T) string {
+	t.Helper()
+
+	in, err := generate.NewInput("prod", "https://10.0.0.1:6443", constants.DefaultKubernetesVersion)
+	require.NoError(t, err)
+
+	cfg, err := in.Config(machine.TypeControlPlane)
+	require.NoError(t, err)
+
+	data, err := cfg.EncodeBytes()
+	require.NoError(t, err)
+
+	path := filepath.Join(t.TempDir(), "controlplane.yaml")
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	return path
+}
+
+func TestConfigImportEncrypted(t *testing.T) {
+	clearUnlockEnv(t)
+
+	mc := controlPlaneConfig(t)
+	identity, recipient := ageKey(t)
+	output := filepath.Join(t.TempDir(), "mcp-config")
+
+	_, stderr, err := runRoot(t, "config", "import", mc, "-o", output, "--recipient", recipient)
+	require.NoError(t, err)
+	assert.Contains(t, stderr, `imported context "prod" (os:reader,`)
+	assert.Contains(t, stderr, "discovery: cluster_id ")
+	assert.Contains(t, stderr, "secrets: key and cluster_secret encrypted")
+
+	info, err := os.Stat(output)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	c := loadContexts(t, output)["prod"]
+	require.NotNil(t, c)
+	assert.True(t, secrets.IsEncrypted(c.Key))
+	assert.Equal(t, []string{"10.0.0.1"}, c.Endpoints)
+
+	stdout, _, err := runRoot(t, "config", "check", "--talosconfig", output, "--talosconfig-identity", identity)
+	require.NoError(t, err)
+	assert.Regexp(t, `prod +reader +key,cluster_secret +ok\n`, stdout)
+
+	_, _, err = runRoot(t, "config", "import", mc, "-o", output, "--recipient", recipient)
+	require.ErrorContains(t, err, "use --force")
+
+	_, _, err = runRoot(t, "config", "import", mc, "-o", output, "--force", "--roles", "os:operator", "-e", "cp.example.com")
+	require.NoError(t, err)
+
+	c = loadContexts(t, output)["prod"]
+	assert.False(t, secrets.IsEncrypted(c.Key), "plaintext without encryption flags")
+	assert.Equal(t, []string{"cp.example.com"}, c.Endpoints)
+}
+
+func TestConfigImportMerge(t *testing.T) {
+	clearUnlockEnv(t)
+
+	output := plainTalosconfig(t)
+
+	_, stderr, err := runRoot(t, "config", "import", controlPlaneConfig(t), "-o", output, "--context", "lab", "--no-discovery")
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "secrets: stored in plaintext")
+	assert.NotContains(t, stderr, "discovery:")
+
+	contexts := loadContexts(t, output)
+	assert.Contains(t, contexts, "prod")
+	assert.Contains(t, contexts, "staging")
+	assert.Contains(t, contexts, "lab")
+
+	cfg, err := config.LoadTalosConfig(output, "")
+	require.NoError(t, err)
+	assert.Equal(t, "prod", cfg.Current, "the current context is kept")
+	assert.NotContains(t, cfg.Discovery, "lab")
+	assert.Contains(t, cfg.Discovery, "prod")
+}
+
+func TestConfigImportErrors(t *testing.T) {
+	clearUnlockEnv(t)
+
+	mc := controlPlaneConfig(t)
+	output := filepath.Join(t.TempDir(), "mcp-config")
+
+	_, _, err := runRoot(t, "config", "import", mc, "-o", output, "--roles", "os:bogus")
+	require.ErrorContains(t, err, "unknown roles: os:bogus")
+
+	_, _, err = runRoot(t, "config", "import", mc, "-o", mc)
+	require.ErrorContains(t, err, "must not be the machine config")
+
+	_, _, err = runRoot(t, "config", "import", mc, "-o", output, "--passphrase", "-r", "age1x")
+	require.ErrorContains(t, err, "cannot be combined")
+
+	_, err = os.Stat(output)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestConfigImportSymlink(t *testing.T) {
+	clearUnlockEnv(t)
+
+	target := plainTalosconfig(t)
+	link := filepath.Join(t.TempDir(), "config")
+	require.NoError(t, os.Symlink(target, link))
+
+	_, _, err := runRoot(t, "config", "import", controlPlaneConfig(t), "-o", link, "--context", "lab")
+	require.NoError(t, err)
+
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	assert.Equal(t, os.ModeSymlink, info.Mode().Type(), "the link is kept")
+	assert.Contains(t, loadContexts(t, target), "lab")
 }

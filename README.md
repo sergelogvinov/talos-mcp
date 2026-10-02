@@ -118,7 +118,7 @@ Set the talosconfig path with `--talosconfig` or `TALOSCONFIG`. The default is
 
 See [docs/config.md](docs/config.md) for every talosconfig field, the
 discovery block, credential roles, the unlock options for encrypted secrets,
-the `config encrypt`, `decrypt`, and `check` commands, deployment recipes, and
+the `config import`, `encrypt`, `decrypt`, and `check` commands, deployment recipes, and
 troubleshooting.
 
 ## Configure an MCP client

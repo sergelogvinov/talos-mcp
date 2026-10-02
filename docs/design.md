@@ -346,6 +346,7 @@ cmd/talos-mcp/
     tools.go         `tools` subcommand (in-memory MCP client, key=value args)
     version.go       `version` subcommand
     config.go        `config encrypt|decrypt|check` subcommands (secrets.md)
+    config_import.go `config import` from a control plane machine config
 
 internal/
     config/          Config, talosconfig path resolution & validation,
@@ -1329,7 +1330,8 @@ starting:
 
 - `internal/secrets` (detect, unlock, decrypt, encrypt), wired into
   `internal/config` during load (secrets.md §5), and the
-  `talos-mcp config encrypt|decrypt|check` subcommands in `config.go`.
+  `talos-mcp config encrypt|decrypt|check` subcommands in `config.go`, and
+  `config import` in `config_import.go`.
 - This step can run in parallel with steps 7–12. It only touches
   `internal/config` and `cmd/talos-mcp/config.go`.
 

@@ -3,13 +3,19 @@
 talos-mcp connects to Talos clusters with a **talosconfig**, the same file
 format `talosctl` uses. This guide covers every field the server reads, the
 command-line flags and environment variables that control loading, and how to
-encrypt and decrypt the secret fields.
+import a context from a machine config, and encrypt and decrypt the secret
+fields.
 
 ## 1. Quick start
 
 ```sh
 # Create a read-only client credential for the MCP server
 talosctl config new --roles os:reader --crt-ttl 8760h ~/.talos/mcp-config
+
+# Or build the whole context, discovery block included, from the control
+# plane machine config, encrypted to your SSH key (see 4.3)
+talos-mcp config import controlplane.yaml -o ~/.talos/mcp-config \
+    --recipient-file ~/.ssh/id_ed25519.pub
 
 # Optional: encrypt the private key to your own SSH key
 talos-mcp config encrypt --talosconfig ~/.talos/mcp-config -o ~/.talos/mcp-config.enc \
@@ -97,6 +103,9 @@ registered only when at least one context has a valid `discovery` block.
 | `endpoint`       | no       | no     | Discovery service address. Default `discovery.talos.dev:443`. Accepted forms: `host`, `host:port`, `https://host/`, `https://host:port/`, and `http://host:port/` for a self-hosted service without TLS (default port 80). The `grpcs://` and `grpc://` schemes work as synonyms. A URL path is not allowed. |
 | `cluster_id`     | yes      | no     | The cluster ID: `cluster.id` in the machine config or in the `talosctl gen secrets` bundle. |
 | `cluster_secret` | yes      | **yes** | The cluster secret: `cluster.secret` in the machine config or the secrets bundle. Base64, must decode to a valid AES key (32 bytes). May be stored encrypted (see 4). |
+
+`talos-mcp config import` (4.3) fills the whole block from a control plane
+machine config.
 
 A bad discovery block (missing field, bad secret, bad endpoint) disables
 discovery for that context with a warning. The context itself stays usable.
@@ -249,7 +258,74 @@ The file is read once. Changes need a restart.
 Encryption protects the secrets **at rest** only: once decrypted they live
 in the server's memory, the same as a plaintext talosconfig.
 
-### 4.3 `talos-mcp config encrypt`
+### 4.3 `talos-mcp config import`
+
+Builds a context from a **control plane** machine config (for example the
+`controlplane.yaml` from `talosctl gen config`) and adds it to a talosconfig.
+It is the quickest way to get a complete context, discovery block included.
+
+```sh
+talos-mcp config import MACHINECONFIG -o OUTPUT
+    [--context NAME] [--roles os:reader] [--crt-ttl 8760h]
+    [-e ENDPOINT ...] [-n NODE ...] [--no-discovery] [--force]
+    [--passphrase | --recipient KEY ... | --recipient-file FILE ...]
+```
+
+What it takes from the machine config:
+
+| talosconfig field | Source |
+| ----------------- | ------ |
+| context name | `cluster.clusterName`, unless `--context` is set |
+| `endpoints` | The host of `cluster.controlPlane.endpoint`, unless `--endpoints` is set |
+| `ca` | `machine.ca.crt` |
+| `crt`, `key` | A **new** client certificate with `--roles`, signed by `machine.ca.key`. The CA key itself is never written. |
+| `discovery.endpoint` | The discovery service endpoint (`cluster.discovery.registries.service.endpoint` or a `DiscoveryServiceConfig` document) |
+| `discovery.cluster_id`, `discovery.cluster_secret` | `cluster.id` and `cluster.secret` (or a `DiscoveryIdentityConfig` document) |
+
+| Flag | Description |
+| ---- | ----------- |
+| `-o`, `--output` | **Required.** The talosconfig to add the context to. It is created when missing; otherwise the other contexts, comments and unknown keys are kept. Written atomically with mode `0600`. |
+| `--context` | Context name. Default: the cluster name. |
+| `--roles` | Roles of the client certificate. Default `os:reader`. Use `os:operator` to allow the operator tools. |
+| `--crt-ttl` | Lifetime of the client certificate. Default `8760h` (one year). |
+| `-e`, `--endpoints` | Talos API endpoints, instead of the cluster endpoint host. |
+| `-n`, `--nodes` | Default nodes of the context. |
+| `--no-discovery` | Leave out the discovery block. |
+| `-f`, `--force` | Replace the context when it already exists. Without it, the command fails. |
+| `--passphrase`, `-r`, `-R` | Encrypt `key` and `cluster_secret` before they are written, with the same rules as `config encrypt` (4.4). Without them, both are stored in plaintext. |
+
+Rules:
+
+- A worker machine config has no CA key and is refused.
+- The discovery block is skipped, with a note, when discovery or the
+  discovery service is disabled in the machine config.
+- The current context of an existing file is kept. A new file gets the
+  imported context as its current context.
+- `-` reads the machine config from stdin.
+- A symlinked `--output` is followed: the file it points to is updated and
+  the link is kept.
+
+Examples:
+
+```sh
+# Read-only context, encrypted to your SSH key, discovery included
+talos-mcp config import controlplane.yaml -o ~/.talos/mcp-config \
+    --recipient-file ~/.ssh/id_ed25519.pub
+
+# Operator context under another name, added to an existing file
+talos-mcp config import controlplane.yaml -o ~/.talos/mcp-config \
+    --context prod-eu --roles os:operator -e 10.0.0.10,10.0.0.11 --passphrase
+
+# From a running control plane node (needs an os:admin talosconfig)
+talosctl -n 10.0.0.10 read /system/state/config.yaml | \
+    talos-mcp config import - -o ~/.talos/mcp-config --recipient-file ~/.ssh/id_ed25519.pub
+```
+
+> **Warning.** The control plane machine config holds every cluster secret.
+> Run the import where that file already lives, and do not copy it around
+> just for this. The output holds only what talos-mcp needs.
+
+### 4.4 `talos-mcp config encrypt`
 
 Encrypts `key` and `cluster_secret` of every context (or of `--context`) and
 writes the result to a new file.
@@ -303,7 +379,7 @@ To create an age key pair, use `age-keygen` from the age project:
 age-keygen -o mcp-identity.txt     # prints the public key (age1...) on stderr
 ```
 
-### 4.4 `talos-mcp config check`
+### 4.5 `talos-mcp config check`
 
 Checks that every encrypted field decrypts with the configured unlock
 sources, and prints one row per context:
@@ -326,7 +402,7 @@ old       -         -                   ok
 The command exits with an error when any context fails to decrypt. It does
 not contact the cluster.
 
-### 4.5 `talos-mcp config decrypt`
+### 4.6 `talos-mcp config decrypt`
 
 Prints the talosconfig with all encrypted fields decrypted, to **stdout
 only**. Use it to get back a file `talosctl` can use, or before re-encrypting.
@@ -339,7 +415,7 @@ chmod 600 mcp-config
 `--context` limits decryption to one context; the other contexts are printed
 unchanged.
 
-### 4.6 Rotating keys or the passphrase
+### 4.7 Rotating keys or the passphrase
 
 Fields that are already encrypted are never re-encrypted, so rotate in two
 steps:
@@ -351,7 +427,7 @@ talos-mcp config encrypt --talosconfig plain.yaml -o mcp-config.enc --recipient-
 rm plain.yaml
 ```
 
-### 4.7 Compatibility with talosctl
+### 4.8 Compatibility with talosctl
 
 - `talosctl` cannot use a context with an encrypted `key`; it fails with
   "failed to find any PEM data". Keep the encrypted file for talos-mcp only.

@@ -336,7 +336,7 @@ func fillNullContexts(data []byte) ([]byte, error) {
 
 	for i := 1; i < len(contexts.Content); i += 2 {
 		if c := contexts.Content[i]; c.Kind == yaml.ScalarNode && c.Tag == "!!null" {
-			contexts.Content[i] = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			contexts.Content[i] = &yaml.Node{Kind: yaml.MappingNode, Tag: yamlMapTag}
 			changed = true
 		}
 	}
