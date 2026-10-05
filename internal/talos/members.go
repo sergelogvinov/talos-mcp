@@ -31,7 +31,7 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/resources/network"
 )
 
-// MemberSource tells where a member list came from (design §6.1).
+// MemberSource tells where a member list came from.
 type MemberSource string
 
 // Member sources, in the order they are tried.
@@ -93,9 +93,10 @@ type MemberList struct {
 	ReadErr error
 }
 
-// Members returns the node list of a cluster (design §6.1). It reads the COSI
-// Members resource through the endpoints, and falls back to the talosconfig
-// nodes, then endpoints, with a warning. It never uses the discovery service.
+// Members returns the node list of a cluster. It reads the COSI Members
+// resource through the endpoints. When the read fails or returns no members,
+// it falls back to the talosconfig nodes, then endpoints, with a warning. It
+// never uses the discovery service.
 func (p *Pool) Members(ctx context.Context, cluster string) (*MemberList, error) {
 	name, err := p.Resolve(cluster)
 	if err != nil {
@@ -227,7 +228,7 @@ type ResolvedNode struct {
 	Warnings    []string
 }
 
-// ResolveNode maps a node tool's `node` argument to an address (design §6.1):
+// ResolveNode maps a node tool's `node` argument to an address:
 // an IP is used as is, a hostname, node name or node ID is looked up in
 // Pool.Members, and an empty node falls back to the context's single default
 // node. A :port suffix and IPv6 brackets are ignored.
@@ -299,10 +300,10 @@ type NodeTargets struct {
 
 // ResolveAllNodes returns every member of a cluster as a node tool target,
 // with the address picked by SelectAddress, or by SelectDiscoveryAddress when
-// the cluster has a discovery block. Members without a usable
-// address are left out with a warning. Members that resolve to the same
-// address (such as "10.0.0.1" and "10.0.0.1:50000" in the talosconfig
-// fallback) become one target, so each node is queried once.
+// the cluster has a discovery block. Members without a usable address are
+// left out with a warning. Members that resolve to the same address (such as
+// "10.0.0.1" and "10.0.0.1:50000" in the talosconfig fallback) become one
+// target, so each node is queried once.
 func (p *Pool) ResolveAllNodes(ctx context.Context, cluster string) (*NodeTargets, error) {
 	list, err := p.Members(ctx, cluster)
 	if err != nil {
@@ -362,8 +363,8 @@ func (l *MemberList) note() string {
 	return " (" + strings.Join(l.Warnings, "; ") + ")"
 }
 
-// SelectAddress picks the target address from a member's addresses (design
-// §6.1). Link-local addresses are never used. It prefers, in order: an
+// SelectAddress picks the target address from a member's addresses.
+// Link-local addresses are never used. It prefers, in order: an
 // address of the preferred IP family, any other IP or DNS name, and last an
 // address that looks like a KubeSpan or SideroLink ULA. The ULA check only
 // looks at two bytes, so a site ULA subnet can match it; those addresses are

@@ -28,8 +28,8 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// Client is the part of the Talos client the tools use (design §14). The pool
-// hands it out instead of *client.Client, so tool tests can use a fake.
+// Client is the part of the Talos client that the tools use. The pool hands
+// it out instead of *client.Client, so tool tests can use a fake.
 type Client interface { //nolint:interfacebloat // mirrors the client.Client methods the tools call
 	Version(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.VersionResponse, error)
 	ServiceList(ctx context.Context, callOptions ...grpc.CallOption) (*machineapi.ServiceListResponse, error)

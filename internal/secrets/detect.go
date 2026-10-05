@@ -14,9 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package secrets encrypts and decrypts talosconfig secret fields with age
-// (docs/secrets.md). A value is encrypted when its base64 decodes to an age
-// file in ASCII armor.
+// Package secrets encrypts and decrypts talosconfig secret fields with age.
+// A value is encrypted when its base64 decodes to an age file in ASCII armor.
 package secrets
 
 import (

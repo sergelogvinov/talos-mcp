@@ -33,7 +33,7 @@ type TalosTools struct {
 	allowDestructive bool
 	extensions       map[string]bool
 
-	// sanitizer masks secrets in log and dmesg lines (design §10).
+	// sanitizer masks secrets in log and dmesg lines.
 	sanitizer *utils.Sanitizer
 
 	// registered lists the tools added by RegisterTools, so
@@ -41,13 +41,13 @@ type TalosTools struct {
 	registered []toolSpec
 }
 
-// toolSpec is what a cluster needs for a tool to be usable on it (design §2.3).
+// toolSpec is what a cluster needs for a tool to be usable on it.
 type toolSpec struct {
 	name          string
 	minRole       talos.Role
 	needDiscovery bool
-	// apis are the apid gRPC methods the tool calls, checked against the
-	// Talos role rules in tests (§15.1 item 2).
+	// apis are the apid gRPC methods the tool calls. Tests check them
+	// against the methods that minRole may call.
 	apis []string
 }
 
@@ -84,15 +84,15 @@ func NewTalosTools(pool *talos.Pool, allowDestructive bool, extensions map[strin
 	}
 }
 
-// RegisterTools registers the tools enabled by --extensions, --allow-destructive
-// and the credential roles on the MCP server (design §7, §9).
+// RegisterTools registers on the MCP server the tools enabled by
+// --extensions, --allow-destructive and the credential roles.
 func (t *TalosTools) RegisterTools(srv *mcp.Server) {
 	if t.enabled(config.ExtensionCluster) {
 		t.RegisterClustersList(srv)
 		t.RegisterClustersDescribe(srv)
 		t.RegisterClustersEvent(srv)
 
-		// The discovery tool needs at least one cluster with discovery keys (§9).
+		// The discovery tool needs at least one cluster with discovery keys.
 		if len(t.pool.ClustersWithDiscovery()) > 0 {
 			t.RegisterClustersMembers(srv)
 		}
@@ -103,7 +103,7 @@ func (t *TalosTools) RegisterTools(srv *mcp.Server) {
 		t.RegisterNodeLogs(srv)
 		t.RegisterNodeDmesg(srv)
 
-		// The destructive tool needs the flag and at least one operator cluster (§9).
+		// The destructive tool needs the flag and at least one operator cluster.
 		if t.allowDestructive && len(t.pool.ClustersWithRole(talos.RoleOperator)) > 0 {
 			t.RegisterNodeReboot(srv)
 		}

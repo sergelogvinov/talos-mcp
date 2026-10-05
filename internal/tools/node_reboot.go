@@ -59,7 +59,7 @@ type NodeRebootInput struct {
 }
 
 // RegisterNodeReboot registers the reboot tool. It is only called with
-// --allow-destructive and at least one operator cluster (design §9).
+// --allow-destructive and at least one operator cluster.
 func (t *TalosTools) RegisterNodeReboot(srv *mcp.Server) {
 	clusters := t.pool.ClustersWithRole(talos.RoleOperator)
 
@@ -107,9 +107,9 @@ func (t *TalosTools) handlerNodeReboot(ctx context.Context, _ *mcp.CallToolReque
 	return textResult(result)
 }
 
-// NodeReboot reboots one node (design §8.7). The role check runs before any
-// Talos call, the node must be named explicitly, and a control plane node is
-// only rebooted when etcd keeps quorum without it.
+// NodeReboot reboots one node. The role check runs before any Talos call,
+// the node must be named explicitly, and a control plane node is only
+// rebooted when etcd keeps quorum without it.
 func (t *TalosTools) NodeReboot(ctx context.Context, in NodeRebootInput) (*NodeRebootResult, error) {
 	if strings.TrimSpace(in.Cluster) == "" {
 		return nil, fmt.Errorf("cluster is required for %s; operator clusters: %s",

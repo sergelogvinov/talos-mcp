@@ -43,7 +43,7 @@ const ToolClustersEvent = "talos_clusters_event"
 
 const apiEvents = "/machine.MachineService/Events"
 
-// Event window and limits (design §8.3).
+// Event window and limits.
 const (
 	defaultEventsSince = time.Hour
 	maxEventsSince     = 30 * 24 * time.Hour
@@ -53,7 +53,7 @@ const (
 	eventsDrainTimeout = 15 * time.Second
 )
 
-// Event read timings, variables so tests can shorten them.
+// Event read timings. They are variables so tests can shorten them.
 var (
 	// eventsHelloTimeout is how long a node has to open its stream (the
 	// hello event): a node that is down or rebooting fails after it.
@@ -111,9 +111,9 @@ func (t *TalosTools) handlerClustersEvent(ctx context.Context, _ *mcp.CallToolRe
 	}, *result, nil
 }
 
-// ClustersEvent returns the recent machined events of a cluster (design
-// §8.3). Each node's backlog since `since` is read until the stream goes
-// idle; nodes that fail are reported in Warnings.
+// ClustersEvent returns the recent machined events of a cluster. Each
+// node's backlog since `since` is read until the stream goes idle. Nodes
+// that fail are reported in Warnings.
 func (t *TalosTools) ClustersEvent(ctx context.Context, in ClustersEventInput) (*ClustersEventResult, error) {
 	since, err := eventsSince(in.Since)
 	if err != nil {
@@ -241,9 +241,9 @@ func (t *TalosTools) ClustersEvent(ctx context.Context, in ClustersEventInput) (
 	return result, nil
 }
 
-// eventNodes is the node argument resolved to the nodes to read: one node,
-// or every cluster member when it is empty. endpointErr is set when the
-// member list could not be read through the endpoints.
+// eventNodes resolves the node argument to the nodes to read: one node, or
+// every cluster member when it is empty. endpointErr is set when the member
+// list could not be read through the endpoints.
 func (t *TalosTools) eventNodes(ctx context.Context, cluster, node string) (nodes []talos.ResolvedNode, warnings []string, endpointErr, err error) {
 	if strings.TrimSpace(node) == "" {
 		targets, err := t.pool.ResolveAllNodes(ctx, cluster)
@@ -284,9 +284,10 @@ type eventRecv struct {
 }
 
 // drainEvents reads the event backlog of one node and keeps the newest keep
-// events. machined sends an empty hello event, then the backlog, then keeps
-// the stream open. A node without a hello within eventsHelloTimeout fails;
-// after it, the read ends after eventsIdleTimeout without an event.
+// events. machined sends an empty hello event, then the backlog, and then
+// keeps the stream open. A node that sends no hello within
+// eventsHelloTimeout fails. After the hello, the read ends when no event
+// comes for eventsIdleTimeout.
 //
 //nolint:gocyclo
 func drainEvents(parent context.Context, c talos.Client, node talos.ResolvedNode, keep int, opts []client.EventsOptionFunc) nodeEvents {
@@ -478,8 +479,8 @@ func describeEvent(ev *machineapi.Event) (string, string) {
 	}
 }
 
-// action lowercases a proto enum name: START -> start, SHUTTING_DOWN ->
-// shutting down.
+// action lowercases a proto enum name and replaces underscores with
+// spaces: START -> start, SHUTTING_DOWN -> shutting down.
 func action(name string) string {
 	return strings.ReplaceAll(strings.ToLower(name), "_", " ")
 }

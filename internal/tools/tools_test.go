@@ -89,7 +89,7 @@ func allExtensions() map[string]bool {
 }
 
 // TestToolSchemas checks that every registered tool has valid input and
-// output schemas (design §14). Later tools are covered automatically.
+// output schemas. New tools are covered automatically.
 func TestToolSchemas(t *testing.T) {
 	session := newServer(t, tools.NewTalosTools(newPool(t, mixedContexts()...), true, allExtensions()))
 

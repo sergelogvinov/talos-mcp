@@ -92,10 +92,10 @@ func (t *TalosTools) handlerClustersDescribe(ctx context.Context, _ *mcp.CallToo
 	return textResult(result)
 }
 
-// ClustersDescribe returns a health and inventory snapshot of a cluster
-// (design §8.2). The node list comes from Pool.Members, and each node is
-// queried on its own (client.WithNode; machinery deprecates WithNodes). A
-// node that fails only adds a warning. It never uses the discovery service.
+// ClustersDescribe returns a health and inventory snapshot of a cluster.
+// The node list comes from Pool.Members, and each node is queried on its
+// own with client.WithNode (machinery deprecates WithNodes). A node that
+// fails only adds a warning. It never uses the discovery service.
 func (t *TalosTools) ClustersDescribe(ctx context.Context, clusterName string) (*ClustersDescribeResult, error) {
 	name, err := t.pool.Resolve(clusterName)
 	if err != nil {
@@ -183,8 +183,7 @@ type describe struct {
 
 // describeNodes queries the first n entries of result.Nodes (the ones with
 // an address), describeFanOut at a time. Each goroutine writes only its own
-// entry; the warnings are returned in node order, with the first Version
-// error.
+// entry. It returns the warnings in node order and the first node error.
 func (d *describe) describeNodes(ctx context.Context, n int) ([]string, error) {
 	warnings := make([][]string, n)
 	errs := make([]error, n)
@@ -329,8 +328,9 @@ func (t *TalosTools) readNodeStatus(ctx context.Context, st state.State, warn fu
 }
 
 // clusterWide reads the etcd members and the cluster name through a
-// reachable control plane node. Without a known one (talosconfig source)
-// etcd is skipped and the name is read from any reachable node.
+// reachable control plane node. When no control plane node is known
+// (talosconfig source), etcd is skipped and the name is read from any
+// reachable node.
 func (d *describe) clusterWide(ctx context.Context) {
 	var controlPlane, anyNode string
 
@@ -416,8 +416,9 @@ func nodeSummaryLabel(n *NodeSummary) string {
 	return nodeLabel(talos.ResolvedNode{Address: n.Address, Name: cmp.Or(n.Hostname, n.Address)})
 }
 
-// clusterKubernetesVersion is the kubelet version of the control plane
-// nodes (all nodes when none is known), several joined while they differ.
+// clusterKubernetesVersion returns the kubelet version of the control plane
+// nodes, or of all nodes when no control plane version is known. Different
+// versions are sorted and joined with commas.
 func clusterKubernetesVersion(nodes []NodeSummary) string {
 	var versions []string
 
@@ -470,8 +471,8 @@ func formatUptime(d time.Duration) string {
 	}
 }
 
-// formatResources renders "cpu=4, memory=7.6GiB (used=2.1GiB)" from what
-// is known.
+// formatResources renders "cpu=4, memory=7.6GiB (used=2.1GiB)" from the
+// values that are known.
 func formatResources(stat *machineapi.SystemStat, mem *machineapi.MemInfo) string {
 	var parts []string
 
@@ -492,10 +493,10 @@ func gib(kib uint64) string {
 	return fmt.Sprintf("%.1fGiB", float64(kib)/(1024*1024))
 }
 
-// notFound reports whether a COSI read failed because the resource doesn't
-// exist, or because the node's Talos version doesn't know its type: the
-// access policy answers PermissionDenied "resource type %q is not supported"
-// (KubeletStatus is new in Talos v1.14.0).
+// notFound reports whether a COSI read failed because the resource does not
+// exist, or because the node's Talos version does not know its type. In the
+// second case the access policy answers PermissionDenied "resource type %q
+// is not supported" (KubeletStatus is new in Talos v1.14.0).
 func notFound(err error) bool {
 	if state.IsNotFoundError(err) || status.Code(err) == codes.NotFound {
 		return true

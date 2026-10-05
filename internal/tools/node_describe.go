@@ -48,7 +48,7 @@ const (
 	apiProcesses = "/machine.MachineService/Processes"
 )
 
-// Limits of talos_node_describe (design §8.8).
+// Limits of talos_node_describe.
 const (
 	defaultDescribeLogLines   = 20
 	maxDescribeLogLines       = 200
@@ -108,8 +108,8 @@ func (t *TalosTools) handlerNodeDescribe(ctx context.Context, _ *mcp.CallToolReq
 	}, *result, nil
 }
 
-// NodeDescribe returns the details of one node (design §8.8). Only a failed
-// Version call fails the tool; every later failure is a warning.
+// NodeDescribe returns the details of one node. Only a failed Version call
+// fails the tool. Every later failure is a warning.
 func (t *TalosTools) NodeDescribe(ctx context.Context, in NodeDescribeInput) (*NodeDescribeResult, error) {
 	logLines, err := describeLogLines(in.LogLines)
 	if err != nil {
@@ -204,8 +204,8 @@ func (d *nodeDescribe) version(resp *machineapi.VersionResponse) {
 	}
 }
 
-// identity reads the hostname and role of a node given by address, which
-// the Members lookup doesn't resolve.
+// identity reads the hostname and role when they are still unknown, as for
+// a node given by an address that the Members lookup does not resolve.
 func (d *nodeDescribe) identity(ctx context.Context) {
 	st := d.target.client.State()
 
@@ -367,7 +367,7 @@ func (d *nodeDescribe) logs(ctx context.Context, services []*machineapi.ServiceI
 	}
 }
 
-// events adds the events read from the node, newest first.
+// events adds the events read from the node, newest first, at most limit.
 func (d *nodeDescribe) events(r nodeEvents, limit int) {
 	switch {
 	case r.err != nil:

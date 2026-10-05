@@ -109,7 +109,7 @@ type FakeClient struct {
 	// event. Then the stream stays open until ctx ends, as machined's does,
 	// unless EventsEnd has an error (io.EOF for a clean end) for the node.
 	// EventsErr maps a node address to the error Events returns for it.
-	// A node in EventsSilent sends nothing, not even the hello, as a node
+	// A node in EventsSilent sends nothing, not even the hello, like a node
 	// that is down or rebooting behind apid.
 	EventLog     map[string][]*machineapi.Event
 	EventsEnd    map[string]error

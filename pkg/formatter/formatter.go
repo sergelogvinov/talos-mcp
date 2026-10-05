@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package formatter renders Go struct values as human-readable markdown text,
-// used as a fallback for agents that cannot consume JSON output.
+// Package formatter renders Go struct values as human-readable markdown text.
+// It is used as a fallback for agents that cannot read JSON output.
 package formatter
 
 import (
@@ -26,16 +26,16 @@ import (
 	"strings"
 )
 
-// ToText converts a struct value into a markdown string describing its
-// data, following docs/fallbackText.md in the sibling projects.
+// ToText converts a struct value into a markdown string that describes its
+// data.
 //
 // Only fields carrying a `jsonschema` tag are rendered, and the tag value is
 // used as the field label. Embedded structs are flattened. Flat fields
 // (scalars, maps, slices of scalars) are rendered first as "Label: value"
 // lines, followed by the block fields: nested structs become heading blocks
 // and slices of structs become markdown tables. Maps become sorted key=value
-// lists. Fields tagged `,omitempty` are omitted when zero-valued, and empty
-// slices/maps are always omitted.
+// lists. Fields with `,omitempty` in the json tag are skipped when they hold
+// the zero value, and empty slices and maps are always skipped.
 func ToText(v any) string {
 	sv := indirect(reflect.ValueOf(v))
 	if !sv.IsValid() || sv.Kind() != reflect.Struct {
@@ -52,7 +52,7 @@ func ToText(v any) string {
 // renderStruct writes the printable fields of sv: flat fields first as
 // "Label: value" lines, then block fields (nested structs and tables) as
 // headings. depth is the nesting level of sv (0 for the top-level struct) and
-// drives heading levels of nested blocks.
+// sets the heading level of nested blocks.
 func renderStruct(sb *strings.Builder, sv reflect.Value, depth int) {
 	flat, blocks := collectItems(sv)
 
@@ -65,7 +65,7 @@ func renderStruct(sb *strings.Builder, sv reflect.Value, depth int) {
 	}
 }
 
-// item is one printable field of a struct, classified by rendering style.
+// item is one printable field of a struct: its label and its value.
 type item struct {
 	label string
 	fv    reflect.Value
@@ -74,9 +74,9 @@ type item struct {
 // collectItems returns the printable fields of sv split into flat items
 // (scalars, maps, slices of scalars — rendered as "Label: value" lines) and
 // block items (nested structs and slices of structs — rendered as headings).
-// Declaration order is preserved within each group. Embedded structs without
-// their own label contribute to both groups, mirroring how encoding/json
-// promotes embedded fields.
+// Fields keep their declaration order within each group. Embedded structs
+// without their own label add their fields to both groups, in the same way
+// encoding/json promotes embedded fields.
 func collectItems(sv reflect.Value) (flat, blocks []item) {
 	t := sv.Type()
 
@@ -90,7 +90,7 @@ func collectItems(sv reflect.Value) (flat, blocks []item) {
 		fv := indirect(sv.Field(i))
 
 		// Embedded structs without their own label are flattened into the
-		// parent, mirroring how encoding/json promotes embedded fields.
+		// parent, in the same way encoding/json promotes embedded fields.
 		if f.Anonymous && label == "" && fv.Kind() == reflect.Struct {
 			subFlat, subBlocks := collectItems(fv)
 			flat = append(flat, subFlat...)
@@ -194,10 +194,10 @@ func renderTable(sb *strings.Builder, label string, fv reflect.Value, depth int)
 	sb.WriteString("\n")
 }
 
-// fieldByIndexPath traverses a multi-level field index, dereferencing
-// intermediate pointers. Unlike reflect.Value.FieldByIndex it never panics:
-// traversal through a nil embedded pointer yields the zero Value, which
-// callers render as an empty cell.
+// fieldByIndexPath follows a multi-level field index and dereferences
+// pointers on the way. Unlike reflect.Value.FieldByIndex it never panics: a
+// nil embedded pointer gives the zero Value, which callers render as an empty
+// cell.
 func fieldByIndexPath(v reflect.Value, index []int) reflect.Value {
 	for _, i := range index {
 		if v.Kind() == reflect.Pointer {
@@ -221,9 +221,9 @@ type column struct {
 }
 
 // tableColumns returns the printable fields of a table element struct. Fields
-// with a `jsonschema` tag are preferred; if the struct has none at all (e.g.
-// OwnerReference), fields fall back to their JSON names so the table is still
-// renderable.
+// with a `jsonschema` tag are preferred. If the struct has none at all (e.g.
+// OwnerReference), the JSON field names are used instead, so the table can
+// still be rendered.
 func tableColumns(t reflect.Type) []column {
 	if cols := collectColumns(t, true); len(cols) > 0 {
 		return cols
@@ -285,8 +285,9 @@ func jsonName(f reflect.StructField) string {
 	return name
 }
 
-// omitted reports whether a field value must be skipped: empty slices/maps are
-// always omitted, and `,omitempty` fields are omitted when zero-valued.
+// omitted reports whether a field value must be skipped. Empty slices and
+// maps are always skipped, and `,omitempty` fields are skipped when they hold
+// the zero value.
 func omitted(jsonTag string, fv reflect.Value) bool {
 	//nolint:exhaustive
 	switch fv.Kind() {
@@ -303,7 +304,8 @@ func omitted(jsonTag string, fv reflect.Value) bool {
 	return fv.IsZero()
 }
 
-// formatCell renders a table cell with the inline rules.
+// formatCell renders a table cell with formatInline. A nil value gives an
+// empty cell.
 func formatCell(v reflect.Value) string {
 	v = indirect(v)
 	if !v.IsValid() {
@@ -314,7 +316,8 @@ func formatCell(v reflect.Value) string {
 }
 
 // formatInline renders a value on a single line: scalars as-is, slices
-// comma-joined, maps as key=value pairs, structs as "Label: value" pairs.
+// joined with commas, maps as key=value pairs, and structs as "Label: value"
+// pairs separated by "; ".
 func formatInline(v reflect.Value) string {
 	//nolint:exhaustive
 	switch v.Kind() {
@@ -422,9 +425,9 @@ func indirect(v reflect.Value) reflect.Value {
 	return v
 }
 
-// writeHeading writes a markdown heading, introducing a blank line first. A
-// field of the top-level struct (depth 0) renders as "###", each deeper
-// nesting level adds one "#".
+// writeHeading writes a markdown heading, with a blank line before it when
+// needed. A field of the top-level struct (depth 0) renders as "###", and each
+// deeper nesting level adds one "#".
 func writeHeading(sb *strings.Builder, depth int, label string) {
 	if s := sb.String(); s != "" && !strings.HasSuffix(s, "\n\n") {
 		sb.WriteString("\n")
@@ -441,8 +444,8 @@ func writeLine(sb *strings.Builder, s string) {
 	sb.WriteString("\n")
 }
 
-// writeField writes a "Label: value" line, trimming the dangling space left
-// by empty values.
+// writeField writes a "Label: value" line. It trims the trailing space that
+// an empty value would leave.
 func writeField(sb *strings.Builder, label, value string) {
 	writeLine(sb, strings.TrimRight(label+": "+value, " "))
 }

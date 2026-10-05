@@ -43,7 +43,7 @@ const talosconfigPrompt = "Enter passphrase for talosconfig: "
 // source is set.
 var ErrNoPassphrase = errors.New("no passphrase source is set")
 
-// Options are the unlock sources (docs/secrets.md §4).
+// Options are the unlock sources for encrypted talosconfig values.
 type Options struct {
 	// IdentityFiles are age identity files or OpenSSH private keys.
 	IdentityFiles []string

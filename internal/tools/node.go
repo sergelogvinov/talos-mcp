@@ -49,9 +49,9 @@ func (n *nodeTarget) nodeName() string {
 	return n.node.Name
 }
 
-// resolveNodeTarget runs the per-call checks of a node tool (design §9):
-// cluster, minimum role, then node resolution (§6.1), and returns the
-// cluster's client.
+// resolveNodeTarget runs the per-call checks of a node tool. It resolves
+// the cluster, checks the minimum role, then resolves the node, and returns
+// the target with the cluster's client.
 func (t *TalosTools) resolveNodeTarget(ctx context.Context, cluster, node string, required talos.Role) (*nodeTarget, error) {
 	name, err := t.pool.Resolve(cluster)
 	if err != nil {

@@ -43,7 +43,7 @@ const encryptPrompt = "Enter passphrase to encrypt talosconfig: "
 var secretFields = []string{config.FieldKey, config.FieldClusterSecret}
 
 // newConfigCmd creates the `config` subcommand that encrypts, decrypts and
-// checks the secret fields of a talosconfig (docs/secrets.md §6).
+// checks the secret fields of a talosconfig.
 func newConfigCmd(flags *Flags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",

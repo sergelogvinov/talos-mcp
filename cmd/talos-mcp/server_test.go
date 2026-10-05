@@ -188,7 +188,7 @@ func TestServerMCP(t *testing.T) {
 	assert.Contains(t, ts.logs.String(), "msg=calling method=tools/call name=talos_clusters_list",
 		"the logging middleware sees calls made over HTTP")
 
-	// The client still holds its session and standing SSE stream, so
+	// The client still holds its session and open SSE stream, so
 	// shutdown has to end them.
 	start := time.Now()
 

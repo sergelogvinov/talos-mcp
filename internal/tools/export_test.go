@@ -31,5 +31,5 @@ func SetEventTimings(t *testing.T, hello, idle time.Duration, fanOut int) {
 	t.Cleanup(func() { eventsHelloTimeout, eventsIdleTimeout, eventsFanOut = oldHello, oldIdle, oldFanOut })
 }
 
-// SingleTypes is singleTypes, for tests of schemas no tool has yet.
+// SingleTypes exports singleTypes for tests of schemas that no tool uses yet.
 var SingleTypes = singleTypes

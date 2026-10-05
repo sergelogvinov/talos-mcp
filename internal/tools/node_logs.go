@@ -83,8 +83,7 @@ func (t *TalosTools) handlerNodeLogs(ctx context.Context, _ *mcp.CallToolRequest
 	return linesResult(linesHeader(what, result.Cluster, node, result.Count, result.Truncated, result.Warnings), result.Lines, result)
 }
 
-// NodeLogs returns the tail of a service or container log on one node
-// (design §8.5).
+// NodeLogs returns the tail of a service or container log on one node.
 func (t *TalosTools) NodeLogs(ctx context.Context, in NodeLogsInput) (*NodeLogsResult, error) {
 	tail, err := tailOrDefault(in.Tail)
 	if err != nil {
@@ -169,8 +168,8 @@ type rawLine struct {
 	cut  bool
 }
 
-// logsError maps a Logs failure. For a Talos service that the node doesn't
-// run, the error lists the node's services (design §8.5).
+// logsError maps a Logs failure. For a Talos service that the node does not
+// run, the error lists the node's services.
 func (t *TalosTools) logsError(ctx context.Context, target *nodeTarget, err error, service string, kubernetes bool) error {
 	mapped := t.talosError(ctx, err, target.cluster, "Logs")
 

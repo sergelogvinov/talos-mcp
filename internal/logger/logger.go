@@ -47,18 +47,19 @@ const (
 	JSON Format = "json"
 )
 
-// Options controls logger construction.
+// Options configures the logger built by New.
 type Options struct {
 	Level  Level
 	Format Format
 }
 
-// Inject adds a logger to the context
+// Inject adds a logger to the context.
 func Inject(ctx context.Context, logger *slog.Logger) context.Context {
 	return context.WithValue(ctx, loggerNameKey{}, logger)
 }
 
-// FromContext retrieves the logger from context
+// FromContext returns the logger from the context, or a logger that discards
+// all output if the context has none.
 func FromContext(ctx context.Context) *slog.Logger {
 	if logger, ok := ctx.Value(loggerNameKey{}).(*slog.Logger); ok {
 		return logger
@@ -67,8 +68,8 @@ func FromContext(ctx context.Context) *slog.Logger {
 	return slog.New(slog.DiscardHandler)
 }
 
-// New builds a slog logger writing to stderr with the configured level and
-// encoder. Caller is captured so logs show the source line.
+// New builds a slog logger that writes to stderr with the given level and
+// format. It returns an error if the level or format is not valid.
 func New(o Options) (*slog.Logger, error) {
 	if err := o.Level.Validate(); err != nil {
 		return nil, err
@@ -81,8 +82,8 @@ func New(o Options) (*slog.Logger, error) {
 		Level: o.Level.slogLevel(),
 	}
 
-	// All hook output goes to stderr. In stdio mode, stdout is the JSON-RPC transport,
-	// writing to stdout from hooks corrupts the protocol stream.
+	// All log output goes to stderr. In stdio mode, stdout carries the JSON-RPC
+	// messages, so writing logs to stdout would break the protocol stream.
 	var handler slog.Handler
 	if o.Format == Text {
 		handler = slog.NewTextHandler(os.Stderr, opts)
@@ -113,7 +114,7 @@ func (f Format) Validate() error {
 	}
 }
 
-// slogLevel maps the option to a slog.Level.
+// slogLevel maps the level to a slog.Level. Unknown values map to Info.
 func (l Level) slogLevel() slog.Level {
 	switch l {
 	case Debug:

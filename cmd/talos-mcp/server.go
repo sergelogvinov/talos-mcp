@@ -32,7 +32,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Variables so tests can shorten them.
+// These are variables, not constants, so tests can shorten them.
 var (
 	// shutdownTimeout bounds the graceful shutdown of the HTTP server.
 	shutdownTimeout = 5 * time.Second
@@ -145,17 +145,18 @@ func newHTTPHandler(srv *mcp.Server, noHostCheck bool, log *slog.Logger) http.Ha
 
 // serveHTTP serves handler on ln until ctx is canceled, then shuts down.
 //
-// Shutdown stops accepting connections and ends standing SSE streams (GET
+// Shutdown stops accepting connections and ends open SSE streams (GET
 // requests) at once, since they never finish on their own. Tool calls in
-// flight get shutdownTimeout to finish. After that they are canceled through
-// calls, given abortTimeout to return, and the connections are closed.
+// flight get shutdownTimeout to finish. After that, the call tracker (calls)
+// cancels them, they get abortTimeout to return, and the connections are
+// closed.
 // A Serve error stops the server the same way, without the grace period.
 func serveHTTP(ctx context.Context, ln net.Listener, handler http.Handler, calls *callTracker, log *slog.Logger) error {
 	// The HTTP request contexts do not inherit the signal context. A POST
 	// waits on its request context for the call's response, so a signal must
 	// not cancel it, or the result of a call that finishes in the grace
 	// period is lost. Tool handlers do not use these contexts: the SDK runs
-	// them on the session context, and calls cancels them.
+	// them on the session context, and the call tracker cancels them.
 	baseCtx, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelBase()
 

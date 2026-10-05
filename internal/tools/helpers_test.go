@@ -125,7 +125,7 @@ func TestTalosErrorKeepsCause(t *testing.T) {
 
 // readerAPIs are the apid methods that allow os:reader in Talos v1.14.2
 // (internal/app/machined/pkg/system/services/machined.go), for the methods
-// the tools use. Update it when pkg/machinery is bumped (design §2.3).
+// the tools use. Update it when pkg/machinery is bumped.
 var readerAPIs = map[string]bool{
 	"/machine.MachineService/Dmesg":          true,
 	"/machine.MachineService/EtcdMemberList": true,
@@ -145,8 +145,8 @@ var readerAPIs = map[string]bool{
 	"/cosi.resource.State/Watch":             true,
 }
 
-// TestReaderToolsUseReaderAPIs fails when a tool open to os:reader calls an
-// apid method that os:reader may not call (design §15.1 item 2).
+// TestReaderToolsUseReaderAPIs fails when a registered tool calls an apid
+// method that its minimum role (os:reader or os:operator) may not call.
 func TestReaderToolsUseReaderAPIs(t *testing.T) {
 	tc, err := config.ParseTalosConfig([]byte(talostest.TalosConfig(t, time.Now(),
 		talostest.Context{Name: "prod", Roles: []string{"os:operator"}, Discovery: "prod-id"},

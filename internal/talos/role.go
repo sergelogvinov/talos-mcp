@@ -32,7 +32,7 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/role"
 )
 
-// Role is the effective role of a context's credential (design §2.3).
+// Role is the effective role of a context's credential.
 // Roles are ordered: a higher role allows everything a lower one does.
 type Role int
 
@@ -146,7 +146,7 @@ func roleFromOrganizations(orgs []string) (Role, bool) {
 // CheckCredentials parses the client certificate of every context in tc. A
 // context whose certificate can't be parsed or has no known role is removed
 // from tc with a warning. os:admin credentials and certificates that are
-// expired or expire soon are kept, with a warning (design §2.3, §11).
+// expired or expire soon are kept, with a warning.
 func CheckCredentials(tc *config.TalosConfig, now time.Time) (map[string]*Credential, error) {
 	creds := make(map[string]*Credential, len(tc.Config.Contexts))
 

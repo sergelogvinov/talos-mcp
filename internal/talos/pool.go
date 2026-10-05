@@ -38,10 +38,10 @@ var (
 )
 
 // Pool holds the per-context Talos clients and what the server knows about
-// each context offline: its role, credential and discovery block (design §6).
+// each context offline: its role, credential and discovery block.
 type Pool struct {
 	cfg       *clientconfig.Config
-	contexts  []string // sorted, after --context filter & validation
+	contexts  []string // sorted, after --context filter and validation
 	current   string   // default context
 	creds     map[string]*Credential
 	discovery map[string]*config.DiscoveryConfig
@@ -95,9 +95,9 @@ func LoadPool(cfg *config.Config, opts ...Option) (*Pool, error) {
 	return NewPool(tc, opts...)
 }
 
-// NewPool checks the credential of every context in tc (design §2.3) and
-// builds the pool. Contexts without a known role are dropped. No network
-// call is made; clients are created on first use.
+// NewPool checks the credential of every context in tc and builds the pool.
+// Contexts whose certificate can't be parsed or has no known role are
+// dropped. No network call is made; clients are created on first use.
 func NewPool(tc *config.TalosConfig, opts ...Option) (*Pool, error) {
 	o := options{
 		newClient:     NewTalosClient,
@@ -226,7 +226,7 @@ func (p *Pool) Discovery(cluster string) *config.DiscoveryConfig {
 }
 
 // ClustersWithRole returns the clusters whose role meets required, sorted.
-// It drives tool registration (design §9).
+// It drives tool registration.
 func (p *Pool) ClustersWithRole(required Role) []string {
 	var names []string
 
@@ -240,7 +240,7 @@ func (p *Pool) ClustersWithRole(required Role) []string {
 }
 
 // ClustersWithDiscovery returns the clusters with a valid discovery block,
-// sorted. It drives talos_clusters_members registration (design §8.4).
+// sorted. It drives talos_clusters_members registration.
 func (p *Pool) ClustersWithDiscovery() []string {
 	var names []string
 
@@ -258,7 +258,7 @@ func (p *Pool) Now() time.Time {
 	return p.now()
 }
 
-// Require is the per-call role check (design §9). It fails for an unknown
+// Require is the role check done on each tool call. It fails for an unknown
 // cluster, or when the cluster's credential is below required.
 func (p *Pool) Require(cluster string, required Role) error {
 	name, err := p.Resolve(cluster)

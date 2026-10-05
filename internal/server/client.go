@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package server provides an SDK-free client interface to interact with an MCP server in-memory.
+// Package server provides helpers to list and call the tools of an MCP server
+// through an in-memory client. The results use plain types, not MCP SDK types.
 package server
 
 import (
@@ -29,7 +30,8 @@ type ToolInfo struct {
 	Description string `json:"description,omitempty"`
 }
 
-// ToolResult is the SDK-free result of a tool invocation.
+// ToolResult is the result of a tool call, in plain types that do not depend
+// on the MCP SDK.
 type ToolResult struct {
 	// Content holds the unstructured text blocks of the result.
 	Content []string `json:"content"`
@@ -39,7 +41,8 @@ type ToolResult struct {
 	IsError bool `json:"isError"`
 }
 
-// ListTools returns the tools registered on the server, viewed as an MCP client.
+// ListTools returns the tools registered on the server, as seen by an MCP
+// client.
 func ListTools(ctx context.Context, srv *mcp.Server) ([]ToolInfo, error) {
 	clientSession, serverSession, err := connectClient(ctx, srv)
 	if err != nil {
@@ -95,7 +98,8 @@ func CallTool(ctx context.Context, srv *mcp.Server, name string, arguments map[s
 	return toolResult, nil
 }
 
-// connectClient connects an in-memory MCP client to the server.
+// connectClient connects an in-memory MCP client to the server and returns
+// the client and server sessions.
 func connectClient(ctx context.Context, srv *mcp.Server) (*mcp.ClientSession, *mcp.ServerSession, error) {
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 

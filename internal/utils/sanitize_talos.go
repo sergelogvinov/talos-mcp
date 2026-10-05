@@ -29,7 +29,7 @@ const minLiteralLen = 8
 
 // talosValuePatterns are Talos-specific secret formats. They run before the
 // default value patterns, so the generic pattern cannot mask only part of a
-// base64 value. See docs/design.md §10.
+// base64 value.
 var talosValuePatterns = []string{
 	// Base64-encoded PEM ("-----BEGIN" encodes to "LS0tLS1CRUdJTi"), as found
 	// in machine.ca.key, cluster.ca.crt and other config dump fields.
@@ -38,10 +38,10 @@ var talosValuePatterns = []string{
 	`(?P<jointoken>\b[a-z0-9]{6}\.[a-z0-9]{16}\b)`,
 }
 
-// NewTalosSanitizer returns a Sanitizer with the default keys and patterns,
-// the Talos-specific value patterns, YAML "key: value" masking for config
-// dumps (machine.token, cluster.secret, ...) and the given literal values,
-// such as the configured discovery cluster_secret values.
+// NewTalosSanitizer returns a Sanitizer with the default keys and patterns
+// and the Talos-specific value patterns. It also masks YAML "key: value" lines
+// in config dumps (machine.token, cluster.secret, ...) and the given literal
+// values, such as the configured discovery cluster_secret values.
 func NewTalosSanitizer(literals ...string) (*Sanitizer, error) {
 	s := &Sanitizer{
 		exactKeys: make(map[string]struct{}, len(defaultSensitiveKeys)),
@@ -127,8 +127,8 @@ func (s *Sanitizer) maskYAMLKeys(line string) string {
 	return line[:start] + repl + line[end:]
 }
 
-// buildYAMLKeyRegex matches an indented YAML mapping line (optionally a list
-// item) whose key ends with one of the sensitive key alternatives, e.g.
+// buildYAMLKeyRegex returns a regex that matches a YAML mapping line (it may
+// be indented or a list item) whose key ends with a sensitive key, e.g.
 // "  token: x", "  - secret: x" or "  secretboxEncryptionSecret: x". The
 // first value token is captured in group "yval".
 func buildYAMLKeyRegex(keyAlt string) *regexp.Regexp {

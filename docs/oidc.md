@@ -1,6 +1,6 @@
 # Talos MCP Server — OIDC Authentication (Design, Future)
 
-Status: **proposed**. This feature is not part of v1 (see `design.md` §12–13).
+Status: **proposed**. This feature is not part of v1.
 
 ## 1. Problem
 
@@ -74,7 +74,7 @@ Three independent layers have to agree before a destructive call goes
 through:
 
 1. **Policy** (talos-mcp): the identity is granted `operator` on the cluster.
-2. **Registration and role gating** (talos-mcp, design §9):
+2. **Registration and role gating**:
    `--allow-destructive` is set and the cluster's credential role is
    `operator`, so `talos_node_reboot` exists and accepts that cluster.
 3. **Certificate** (Talos): the cluster's single credential really carries
@@ -88,7 +88,7 @@ each other (§5).
 ## 5. Credential Model
 
 talosconfig holds **one credential per cluster**, the same as without OIDC.
-That certificate's role (`reader` or `operator`, design §2.3) is the
+That certificate's role (`reader` or `operator`) is the
 **ceiling** for every user on that cluster. OIDC can only **narrow** access,
 never widen it:
 
@@ -220,7 +220,7 @@ sequenceDiagram
 
 ### 7.1 Per-identity tool sets
 
-Without OIDC, tool registration follows the credential roles (design §9).
+Without OIDC, tool registration follows the credential roles.
 With OIDC, it follows each caller's **effective** roles.
 `mcp.NewStreamableHTTPHandler(getServer, ...)` chooses a server per request,
 and the process builds **two** `*mcp.Server` instances at startup:
@@ -233,7 +233,7 @@ and the process builds **two** `*mcp.Server` instances at startup:
 `getServer` returns `operator` when the caller has at least one effective
 operator role, and `reader` otherwise. A reader-only user therefore never
 sees `talos_node_reboot` in `tools/list`. The reboot tool's `cluster` enum
-(design §9) lists every operator-credential cluster. The per-call check below
+lists every operator-credential cluster. The per-call check below
 narrows that list to the caller's own operator clusters.
 
 A session is tied to the identity that opened it. If a later request on the
@@ -242,7 +242,7 @@ same session ID carries a token for a different `sub`, it is rejected with
 
 ### 7.2 Per-call enforcement
 
-The existing per-call check `pool.Require(cluster, minRole)` (design §9)
+The existing per-call check `pool.Require(cluster, minRole)`
 becomes grant-aware. The grant travels in the request context
 (`auth.Inject` / `auth.FromContext`):
 
@@ -288,7 +288,7 @@ Startup fails fast if:
 - `--oidc-issuer` is set without `--oidc-policy`;
 - discovery against the issuer fails;
 - the policy is invalid;
-- a policy references a cluster that has no usable credential (design §2.3);
+- a policy references a cluster that has no usable credential;
 - OIDC flags are passed to `mcp` or `tools`, which is rejected with an error
   rather than silently ignored.
 
@@ -339,7 +339,7 @@ Dependency: `github.com/coreos/go-oidc/v3`, the same one mimiops uses.
 | ----------- | ------------------------------- |
 | Forward the token to Talos | Talos can't verify tokens; it only does mTLS. |
 | Authenticating reverse proxy in front of talos-mcp (oauth2-proxy, Pomerium, Cloudflare Access) | Works today without code changes, but it's all-or-nothing: there are no per-cluster or per-role grants, no filtered `tools/list`, and no identity in the MCP audit log. It's still a valid quick option, and it can be combined with this design if the proxy forwards a verified JWT. |
-| Omni with SSO, and talos-mcp using Omni `siderov1` contexts | The best end-to-end answer when Omni is already in use: Omni does SSO and issues per-user Talos access. It depends on Omni support in talos-mcp (design §13) and on per-user Omni service accounts. It should be revisited as a third credential mode. |
+| Omni with SSO, and talos-mcp using Omni `siderov1` contexts | The best end-to-end answer when Omni is already in use: Omni does SSO and issues per-user Talos access. It depends on Omni support in talos-mcp and on per-user Omni service accounts. It should be revisited as a third credential mode. |
 | Per-user certificates minted from the OS CA | Kept as opt-in future work because of the CA-key risk (§5.1). |
 
 ## 12. Testing

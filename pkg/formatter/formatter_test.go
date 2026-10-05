@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Fixture types copied from the mimiops tool results, so the ported
-// expectations stay unchanged.
+// Test types copied from the mimiops tool results, so the expected output
+// copied from there stays the same.
 type OwnerReference struct {
 	APIVersion string `json:"apiVersion"`
 	Kind       string `json:"kind"`
@@ -109,8 +109,9 @@ type PVCSummary struct {
 	Age          string `json:"age" jsonschema:"Age of the PVC"`
 }
 
-// Local structs exercising nested-struct headings and map[string]any values,
-// which the tools types only cover via embedded or sliced structs.
+// Local structs that test nested-struct headings and map[string]any values.
+// The tools types cover these only through embedded structs or slices of
+// structs.
 type deeperBlock struct {
 	Detail string `json:"detail" jsonschema:"Detail of the deeper block"`
 }

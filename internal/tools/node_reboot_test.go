@@ -39,8 +39,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// rebootContexts: prod is a reader cluster (the current one), staging an
-// operator cluster and dev an admin cluster.
+// rebootContexts returns a reader cluster prod (the current one), an
+// operator cluster staging and an admin cluster dev.
 func rebootContexts() []talostest.Context {
 	return []talostest.Context{
 		{Name: "prod", Roles: []string{"os:reader"}},
@@ -90,7 +90,9 @@ func toolByName(t *testing.T, tt *tools.TalosTools, name string) *mcp.Tool {
 	return nil
 }
 
-// TestNodeRebootRegistration is the registration matrix of design §14.
+// TestNodeRebootRegistration checks when the reboot tool is registered:
+// never without --allow-destructive or without an operator cluster, and
+// otherwise only for the clusters with operator (or admin) rights.
 func TestNodeRebootRegistration(t *testing.T) {
 	readers := []talostest.Context{
 		{Name: "prod", Roles: []string{"os:reader"}},

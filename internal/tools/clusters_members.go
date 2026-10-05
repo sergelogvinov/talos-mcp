@@ -36,7 +36,7 @@ type clustersMembersInput struct {
 }
 
 // RegisterClustersMembers registers the discovery members tool. It is only
-// called when at least one cluster has discovery keys (design §8.4).
+// called when at least one cluster has discovery keys.
 func (t *TalosTools) RegisterClustersMembers(srv *mcp.Server) {
 	clusters := t.pool.ClustersWithDiscovery()
 

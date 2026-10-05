@@ -34,14 +34,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Per-call timeouts (design §6).
+// Per-call timeouts.
 const (
 	defaultTimeout   = 30 * time.Second
 	aggregateTimeout = 60 * time.Second
 )
 
 // textResult returns the text rendering of a structured result, next to the
-// structured value itself (design §7).
+// structured value itself.
 func textResult[T any](result *T) (*mcp.CallToolResult, T, error) {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -56,8 +56,8 @@ func withTimeout(ctx context.Context, d time.Duration) (context.Context, context
 	return context.WithTimeout(ctx, d)
 }
 
-// talosError maps a Talos API error to a short, actionable message (design
-// §11). api names the call, such as "Logs", for the permission message.
+// talosError maps a Talos API error to a short message that says what to
+// do. api names the call, such as "Logs", for the permission message.
 func (t *TalosTools) talosError(ctx context.Context, cause error, cluster, api string) error {
 	if cause == nil {
 		return nil
@@ -99,10 +99,11 @@ func (t *TalosTools) talosError(ctx context.Context, cause error, cluster, api s
 }
 
 // noNodeAnswered is the error of a multi-node tool when every node failed.
-// Credential errors and down endpoints (endpointErr: the member list could
-// not be read through them either) are mapped by talosError. Otherwise the
-// endpoints answer and only the nodes failed, so the per-node warnings are
-// returned instead of an "endpoint unreachable" that blames the endpoint.
+// Credential errors and down endpoints (endpointErr is set when the member
+// list could not be read through them either) are mapped by talosError.
+// Otherwise the endpoints answer and only the nodes failed, so the error
+// lists the per-node warnings instead of an "endpoint unreachable" message
+// that blames the endpoint.
 func (t *TalosTools) noNodeAnswered(ctx context.Context, cluster, api string, first, endpointErr error, nodeWarnings []string) error {
 	switch code := status.Code(first); {
 	case code == codes.PermissionDenied || code == codes.Unauthenticated:
@@ -125,7 +126,7 @@ func grpcMessage(err error) string {
 	return err.Error()
 }
 
-// Output caps for log and dmesg lines (design §10).
+// Output limits for log and dmesg lines.
 const (
 	defaultTail    = 100
 	maxTail        = 1000
@@ -150,8 +151,8 @@ func tailOrDefault(tail int) (int, error) {
 	}
 }
 
-// grepWindow is how many lines to read so that tail matches of grep can be
-// found: tail without grep, 10×tail with it, at most maxGrepWindow.
+// grepWindow is how many lines to read so that grep can find tail matches:
+// tail without grep, 10×tail with it, at most maxGrepWindow.
 func grepWindow(tail int, grep string) int {
 	if grep == "" {
 		return tail
@@ -273,7 +274,7 @@ func readLines(r io.Reader, fn func(line string, cut bool)) error {
 }
 
 // linesResult renders log-like output as a one-line header followed by the
-// lines (design §10), next to the structured result.
+// lines, next to the structured result.
 func linesResult[T any](header string, lines []string, result *T) (*mcp.CallToolResult, T, error) {
 	var b bytes.Buffer
 

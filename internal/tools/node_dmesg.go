@@ -78,8 +78,8 @@ func (t *TalosTools) handlerNodeDmesg(ctx context.Context, _ *mcp.CallToolReques
 	return linesResult(linesHeader("dmesg", result.Cluster, node, result.Count, result.Truncated, result.Warnings), result.Lines, result)
 }
 
-// NodeDmesg returns the tail of the kernel ring buffer of one node (design
-// §8.6). The whole buffer is streamed; the last tail lines are kept.
+// NodeDmesg returns the tail of the kernel ring buffer of one node. The
+// whole buffer is streamed, and the last tail lines are kept.
 func (t *TalosTools) NodeDmesg(ctx context.Context, in NodeDmesgInput) (*NodeDmesgResult, error) {
 	tail, err := tailOrDefault(in.Tail)
 	if err != nil {

@@ -79,7 +79,7 @@ type Flags struct {
 	NoHostCheck      bool
 	Output           string
 
-	// Unlock sources for encrypted talosconfig fields (docs/secrets.md §4).
+	// Unlock sources for encrypted talosconfig fields.
 	Identity           []string
 	PassphraseFile     string
 	Askpass            string

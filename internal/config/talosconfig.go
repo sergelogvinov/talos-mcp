@@ -50,7 +50,7 @@ const (
 	FieldClusterSecret = "cluster_secret"
 )
 
-// DiscoveryConfig is the optional per-context `discovery` block (design §2.2).
+// DiscoveryConfig is the optional per-context `discovery` block.
 type DiscoveryConfig struct {
 	// Endpoint is host:port after validation. It may be written as host,
 	// host:port, or a URL as in the machine config
@@ -75,7 +75,7 @@ type TalosConfig struct {
 	// Warnings lists skipped contexts and disabled discovery blocks, for the
 	// caller to log.
 	Warnings []string
-	// Skipped lists the contexts dropped as unusable, sorted by when they
+	// Skipped lists the contexts dropped as unusable, in the order they
 	// were dropped.
 	Skipped []string
 	// PlaintextKeys lists the usable contexts whose key is not encrypted.
@@ -100,8 +100,8 @@ type parseOptions struct {
 	unlock secrets.Options
 }
 
-// WithUnlock sets the sources that unlock encrypted fields (docs/secrets.md
-// §4). Without it, a talosconfig with encrypted fields is an error.
+// WithUnlock sets the sources that unlock encrypted fields. Without it, a
+// talosconfig with encrypted fields is an error.
 func WithUnlock(opts secrets.Options) ParseOption {
 	return func(o *parseOptions) {
 		o.unlock = opts
@@ -119,8 +119,8 @@ func LoadTalosConfig(path, contextFilter string, opts ...ParseOption) (*TalosCon
 	return ParseTalosConfig(data, contextFilter, opts...)
 }
 
-// ParseTalosConfig parses and validates talosconfig bytes (design §2.1, §2.2).
-// Encrypted fields are decrypted in memory (docs/secrets.md §5), and the
+// ParseTalosConfig parses and validates talosconfig bytes, including the
+// discovery blocks. Encrypted fields are decrypted in memory only, and the
 // unlock material is dropped before it returns. Unusable contexts, including
 // ones that do not decrypt, are dropped with a warning. contextFilter, when
 // set, restricts the result to that one context.
@@ -211,7 +211,7 @@ func ParseTalosConfig(data []byte, contextFilter string, opts ...ParseOption) (*
 }
 
 // Remove drops a context that a later check found unusable, such as one
-// without a known role (design §2.3), and records reason as a warning. If the
+// without a known role, and records reason as a warning. If the
 // context was the current one, the first remaining context becomes current.
 // Removing the --context context, or the last context, is an error.
 func (t *TalosConfig) Remove(name, reason string) error {

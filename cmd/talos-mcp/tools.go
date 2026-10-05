@@ -159,11 +159,11 @@ func callTool(ctx context.Context, svc *mcp.Server, name string, args map[string
 	return nil
 }
 
-// parseArguments parses key=value pairs from command line arguments.
-// Values may contain '='; we split on the first '=' only.
-// A bare token without '=' is an error (suggest quoting).
-// key= means empty string value.
-// Integer values are converted to int; all other values remain strings.
+// parseArguments parses key=value pairs from command-line arguments.
+// It splits on the first '=' only, so values may contain '='.
+// A token without '=', or with an empty key, is an error.
+// "key=" gives an empty string value.
+// Integer values become int; all other values stay strings.
 func parseArguments(args []string) (map[string]any, error) {
 	result := make(map[string]any)
 

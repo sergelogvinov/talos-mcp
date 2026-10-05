@@ -15,9 +15,9 @@ limitations under the License.
 */
 
 // Package utils provides shared helpers for the talos-mcp server.
-// It masks sensitive values inside free-form log text before they are surfaced to the
-// MCP client. Redaction is unconditional and one-way: there is no escape hatch
-// and no way to recover the original value.
+// It masks sensitive values in free-form log text before the text is sent to
+// the MCP client. Masking always runs and cannot be undone: there is no way to
+// turn it off and no way to get the original value back.
 package utils
 
 import (
@@ -31,7 +31,7 @@ import (
 const defaultMask = "***"
 
 // defaultSensitiveKeys are the exact key names whose values are masked by
-// NewDefaultSanitizer. See mimiops docs/logs.md §4.1.
+// NewDefaultSanitizer.
 var defaultSensitiveKeys = []string{
 	"password", "passwd", "secret", "token", "api_key", "apikey",
 	"access_key", "access_token", "refresh_token", "auth_token",
@@ -43,7 +43,7 @@ var defaultSensitiveKeys = []string{
 }
 
 // defaultKeyPatterns are regexes matching sensitive key variants
-// (e.g. db_password, access_token). See mimiops docs/logs.md §4.1.
+// (e.g. db_password, access_token).
 var defaultKeyPatterns = []string{
 	`(?i)(password|passwd|pwd)\b`,
 	`(?i)(token|secret|credential|creds|apikey|api_key)\b`,
@@ -51,16 +51,17 @@ var defaultKeyPatterns = []string{
 	`(?i)(phone|telephone|mobile|tel)\b`,
 }
 
-// defaultValuePatterns are regexes matching high-confidence secret formats
-// that appear without a sensitive key. See mimiops docs/logs.md §4.2.
+// defaultValuePatterns are regexes matching well-known secret formats. They
+// mask a value even when no sensitive key is present.
 //
-// Each pattern must use a single capturing group: group 1 is the value that
-// gets replaced by the mask. The card-number pattern is intentionally broad
-// (digit runs with optional separators); candidates are Luhn-validated in Go
+// Each pattern has one named group. By default the whole match is replaced by
+// the mask. The "card" and "urlscheme" patterns get special handling in
+// maskValues. The card-number pattern is broad on purpose (digit runs with
+// optional separators), so each match is checked with the Luhn algorithm
 // before masking to avoid false positives.
 var defaultValuePatterns = []string{
 	// Credit-card candidates: 13-19 digits, optional spaces or dashes.
-	// Luhn-validated in Go.
+	// Checked with the Luhn algorithm before masking.
 	`(?P<card>(?:\d[ -]?){12,18}\d)`,
 	// JWT / Bearer token (three base64url segments).
 	`(?P<jwt>eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)`,
@@ -78,9 +79,9 @@ var defaultValuePatterns = []string{
 	`(?P<stripe>(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{16,})`,
 	// Twilio tokens.
 	`(?P<twilio>SK[0-9a-fA-F]{32})`,
-	// URL credentials are handled by urlCredentialRe (added separately so it
-	// can be rebuilt with scheme/host preserved). Listed here only as a
-	// placeholder; the actual compiled regex is urlCredentialRe.
+	// URL credentials (scheme://user:password@host). maskValues finds this
+	// pattern by its "urlscheme" group and masks only the user info, so the
+	// scheme and host are kept.
 	urlCredentialRe.String(),
 	// Generic long hex/base64url secret (>= 32 chars of [A-Za-z0-9_-]).
 	// '/' and '+' are deliberately excluded so that file paths (common in
@@ -106,15 +107,15 @@ var urlCredentialRe = regexp.MustCompile(
 )
 
 // Sanitizer masks sensitive values in log text. It is safe for concurrent use
-// after construction: all regexes are compiled once at build time and never
-// mutated.
+// once setup is done: Sanitize never changes the Sanitizer, but the Add and
+// Set methods do.
 type Sanitizer struct {
 	exactKeys     map[string]struct{}
 	keyPatterns   []*regexp.Regexp
 	valuePatterns []*regexp.Regexp
 	mask          string
 
-	// combinedKeyRe is rebuilt whenever keys/patterns change. It matches a
+	// combinedKeyRe is rebuilt whenever keys or key patterns change. It matches a
 	// sensitive key followed by an assignment and a value, in either logfmt
 	// or JSON style.
 	combinedKeyRe *regexp.Regexp
@@ -158,7 +159,7 @@ func (s *Sanitizer) AddSensitiveKeys(keys ...string) {
 	s.rebuildKeyRegex()
 }
 
-// AddKeyPatterns compiles and adds key regexes. Returns an error if any
+// AddKeyPatterns compiles and adds key regexes. It returns an error if any
 // pattern fails to compile.
 func (s *Sanitizer) AddKeyPatterns(patterns ...string) error {
 	for _, p := range patterns {
@@ -172,7 +173,7 @@ func (s *Sanitizer) AddKeyPatterns(patterns ...string) error {
 	return nil
 }
 
-// AddValuePatterns compiles and adds value regexes. Returns an error if any
+// AddValuePatterns compiles and adds value regexes. It returns an error if any
 // pattern fails to compile.
 func (s *Sanitizer) AddValuePatterns(patterns ...string) error {
 	for _, p := range patterns {
@@ -193,13 +194,14 @@ func (s *Sanitizer) SetMask(mask string) {
 }
 
 // Sanitize returns a copy of input with sensitive values masked. The input is
-// never mutated. See mimiops docs/logs.md §5 for the order of operations.
+// never changed.
 func (s *Sanitizer) Sanitize(input string) string {
 	if input == "" {
 		return input
 	}
 
-	// 0. Mask configured literal values, so no pattern can split them.
+	// 0. Mask the configured literal values first, so no other pattern can
+	// mask only part of them.
 	out := s.maskLiterals(input)
 
 	// 1. Mask multi-line PEM blocks across the whole input first.
@@ -208,9 +210,10 @@ func (s *Sanitizer) Sanitize(input string) string {
 		return out
 	}
 
-	// 2. Split into lines; for each line run value-based masking first (so
-	// space-separated values like card numbers are masked as a whole), then
-	// key-based masking for structured key=value pairs.
+	// 2. Split into lines. For each line, run value-based masking first (so
+	// values with spaces, like card numbers, are masked as a whole), then
+	// key-based masking for key=value and JSON pairs, and last YAML
+	// "key: value" masking.
 	lines := strings.Split(out, "\n")
 	for i, line := range lines {
 		masked := s.maskValues(line)
@@ -234,9 +237,8 @@ func (s *Sanitizer) maskKeys(line string) string {
 			return match
 		}
 
-		// Find which value group matched. Indices follow the order in the
-		// template: key, val, jkey, jval.
-		// FindStringSubmatchIndex gives offsets; we use named groups for clarity.
+		// Find which value group matched: "val" for logfmt or "jval" for
+		// JSON. Named groups are used, so the group order does not matter.
 		idx := s.combinedKeyRe.SubexpIndex("val")
 		jidx := s.combinedKeyRe.SubexpIndex("jval")
 
@@ -261,11 +263,12 @@ func (s *Sanitizer) maskKeys(line string) string {
 }
 
 // maskValues applies each value regex to a single line. Card-number
-// candidates are Luhn-validated in Go before masking; URL credentials are
-// rebuilt with the userinfo masked and the scheme/host preserved.
+// candidates are checked with the Luhn algorithm before masking. URL
+// credentials are rebuilt with the user info masked and the scheme and host
+// kept.
 func (s *Sanitizer) maskValues(line string) string {
 	for _, re := range s.valuePatterns {
-		name := re.SubexpNames() // nil for non-named patterns
+		name := re.SubexpNames() // "" for unnamed groups
 		switch {
 		case slices.Contains(name, "card"):
 			line = re.ReplaceAllStringFunc(line, func(match string) string {
@@ -284,7 +287,7 @@ func (s *Sanitizer) maskValues(line string) string {
 }
 
 // maskURLCredential rebuilds a matched scheme://user:password@host URL with
-// the userinfo replaced by the mask, preserving the scheme and host.
+// the user info replaced by the mask. The scheme and host are kept.
 func (s *Sanitizer) maskURLCredential(match string) string {
 	m := urlCredentialRe.FindStringSubmatch(match)
 	if m == nil {
@@ -298,9 +301,10 @@ func (s *Sanitizer) maskURLCredential(match string) string {
 	return m[schemeIdx] + "://" + s.mask + "@" + m[hostIdx]
 }
 
-// luhnValid reports whether digits form a valid Luhn checksum. Non-digit
-// characters are ignored. The Luhn algorithm doubles every second digit
-// counting from the right (i.e. the second-to-last digit is doubled).
+// luhnValid reports whether the digits in s form a valid Luhn checksum.
+// Non-digit characters are ignored, and it returns false unless there are 13
+// to 19 digits. The Luhn algorithm doubles every second digit, counting from
+// the right (so the second-to-last digit is the first one doubled).
 func luhnValid(s string) bool {
 	var digits []int
 	for _, r := range s {
@@ -329,7 +333,8 @@ func luhnValid(s string) bool {
 
 // rebuildKeyRegex builds a single combined regex that matches a sensitive key
 // (exact or pattern) followed by an assignment and a value, in either logfmt
-// or JSON style. The value is captured in group "val".
+// or JSON style. It also rebuilds the YAML key regex when YAML masking is
+// enabled.
 func (s *Sanitizer) rebuildKeyRegex() {
 	if len(s.exactKeys) == 0 && len(s.keyPatterns) == 0 {
 		s.combinedKeyRe = nil
@@ -353,9 +358,9 @@ func (s *Sanitizer) rebuildKeyRegex() {
 	//  1. logfmt / key=value (value optionally quoted)
 	//  2. JSON "key": "value" (value optionally quoted)
 	//
-	// Group "key" captures the key name; group "val" captures the value
-	// (without surrounding quotes for logfmt; with quotes for JSON so we can
-	// preserve them).
+	// Groups "key" and "val" capture the logfmt key and value; groups "jkey"
+	// and "jval" capture the JSON key and value. A quoted value keeps its
+	// quotes in the group, so maskKeys can put them back around the mask.
 	tmpl := "(?i)(?:" +
 		// logfmt: key = value | key = "value" | key = 'value'. The unquoted
 		// form excludes whitespace, commas, braces, and both quote kinds so

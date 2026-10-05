@@ -39,7 +39,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// affiliatesTTL is how long discovery results are cached per cluster (design §2.2).
+// affiliatesTTL is how long discovery results are cached per cluster.
 const affiliatesTTL = 30 * time.Second
 
 // Errors returned for the discovery service.
@@ -134,10 +134,10 @@ func dialDiscovery(_ context.Context, endpoint string, plaintext bool) (*grpc.Cl
 	return grpc.NewClient(endpoint, grpc.WithTransportCredentials(creds))
 }
 
-// Affiliates returns the affiliates of a cluster from the discovery service
-// (design §2.2, §8.4). It only calls the List RPC: the server never registers
-// itself as an affiliate. Results are cached for 30s per cluster, and the
-// returned list is a copy.
+// Affiliates returns the affiliates of a cluster from the discovery service.
+// It only calls the List RPC: the server never registers itself as an
+// affiliate. Results are cached for 30s per cluster, and the returned list is
+// a copy.
 func (p *Pool) Affiliates(ctx context.Context, cluster string) (*AffiliateList, error) {
 	name, err := p.Resolve(cluster)
 	if err != nil {
