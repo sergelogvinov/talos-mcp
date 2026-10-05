@@ -5,10 +5,10 @@ kind: ServiceAccount
 metadata:
   name: talos-mcp
   labels:
-    helm.sh/chart: talos-mcp-0.0.1
+    helm.sh/chart: talos-mcp-0.0.2
     app.kubernetes.io/name: talos-mcp
     app.kubernetes.io/instance: talos-mcp
-    app.kubernetes.io/version: "v0.1.0"
+    app.kubernetes.io/version: "v0.2.0"
     app.kubernetes.io/managed-by: Helm
 automountServiceAccountToken: true
 
@@ -19,10 +19,10 @@ kind: Service
 metadata:
   name: talos-mcp
   labels:
-    helm.sh/chart: talos-mcp-0.0.1
+    helm.sh/chart: talos-mcp-0.0.2
     app.kubernetes.io/name: talos-mcp
     app.kubernetes.io/instance: talos-mcp
-    app.kubernetes.io/version: "v0.1.0"
+    app.kubernetes.io/version: "v0.2.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -45,10 +45,10 @@ kind: Deployment
 metadata:
   name: talos-mcp
   labels:
-    helm.sh/chart: talos-mcp-0.0.1
+    helm.sh/chart: talos-mcp-0.0.2
     app.kubernetes.io/name: talos-mcp
     app.kubernetes.io/instance: talos-mcp
-    app.kubernetes.io/version: "v0.1.0"
+    app.kubernetes.io/version: "v0.2.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -63,10 +63,10 @@ spec:
   template:
     metadata:
       labels:
-        helm.sh/chart: talos-mcp-0.0.1
+        helm.sh/chart: talos-mcp-0.0.2
         app.kubernetes.io/name: talos-mcp
         app.kubernetes.io/instance: talos-mcp
-        app.kubernetes.io/version: "v0.1.0"
+        app.kubernetes.io/version: "v0.2.0"
         app.kubernetes.io/managed-by: Helm
     spec:
       enableServiceLinks: false
@@ -89,7 +89,6 @@ spec:
           imagePullPolicy: Always
           args:
             - server
-            - --port=8080
             - --extensions=all
             - --allow-destructive
             - --log-level=info
