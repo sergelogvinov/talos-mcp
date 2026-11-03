@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/sergelogvinov/talos-mcp/compare/v0.2.0...v0.2.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* dependobot ([eae0474](https://github.com/sergelogvinov/talos-mcp/commit/eae0474a67d5277eb42e7d3ff56cce499959da50))
+
 ## [0.2.0](https://github.com/sergelogvinov/talos-mcp/compare/v0.1.0...v0.2.0) (2026-10-05)
 
 
