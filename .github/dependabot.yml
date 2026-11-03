@@ -22,6 +22,7 @@ updates:
           - "actions/*"
           - "azure/*"
           - "docker/*"
+          - "sigstore/*"
       other:
         patterns:
           - "golangci/*"
@@ -41,6 +42,9 @@ updates:
       spf13:
         patterns:
           - "github.com/spf13/*"
+      siderolabs:
+        patterns:
+          - "github.com/siderolabs/*"
 
   - package-ecosystem: "docker"
     directory: "/"
